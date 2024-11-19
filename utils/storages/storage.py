@@ -53,3 +53,6 @@ class Storage:
 
     def length(self):
         return len(self.tuples_deque)
+
+    def print_content(self):
+        print(self.tuples_deque)

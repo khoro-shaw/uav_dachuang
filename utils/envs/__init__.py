@@ -1,4 +1,4 @@
-from .env_gym import EnvGymMCC
+from .env_gym import EnvGymMCC, EnvGymPen
 
 
-__all__ = ["EnvGymMCC"]
+__all__ = ["EnvGymMCC", "EnvGymPen"]

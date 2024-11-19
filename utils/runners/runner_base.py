@@ -8,7 +8,7 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
-from envs import EnvGymMCC
+from envs import EnvGymMCC, EnvGymPen
 from algorithms import DDPGBase
 
 
@@ -22,7 +22,7 @@ class RunnerBase:
         actor_param_list,
         critic_param_list,
         params_dict,
-        track_num=10,
+        track_num=2,
         update_num=1000,
         env_class="EnvGymMCC",
         alg_class="DDPGBase",
@@ -45,33 +45,30 @@ class RunnerBase:
         self.update_num = update_num
         self.actor_loss_log = []
         self.critic_loss_log = []
-        self.reward_log = []
 
     def train(self, load=False):
         a_loss_log = []
         c_loss_log = []
-        r_log_log_log = []
         if load:
             self.alg.load_model()
         for i in range(self.update_num):
-            r_log_log = []
             for j in range(self.track_num):
-                r_log = self.alg.take_one_track()  # take one track
-                r_log_log.append(np.mean(r_log).item())
+                self.alg.take_one_track()  # take one track
             a_loss, c_loss = self.alg.update()  # update
             a_loss_log.append(a_loss)
             c_loss_log.append(c_loss)
-            r_log_log_log.append(np.mean(r_log_log).item())
             if (i + 1) % 10 == 0:
-                self.actor_loss_log.append(torch.mean(torch.tensor(a_loss_log)).item())
-                self.critic_loss_log.append(torch.mean(torch.tensor(c_loss_log)).item())
-                self.reward_log.append(np.mean(r_log_log_log).item())
+                self.actor_loss_log.append(
+                    torch.mean(torch.tensor(a_loss_log[-10:])).item()
+                )
+                self.critic_loss_log.append(
+                    torch.mean(torch.tensor(c_loss_log[-10:])).item()
+                )
                 print(
-                    f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}, average reward: {self.reward_log[-1]}",
+                    f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}",
                 )
                 a_loss_log = []
                 c_loss_log = []
-                r_log_log_log = []
         self.alg.save_model()
 
     def visualize(self):
@@ -88,26 +85,22 @@ class RunnerBase:
         plt.title(f"critic_loss per 10 updates")
         plt.show()
 
-        plt.plot(update_log, self.reward_log)
-        plt.xlabel("updates")
-        plt.ylabel("average reward")
-        plt.title(f"average reward per 10 updates")
-        plt.show()
-
         self.alg_test.load_model()
         self.alg_test.take_one_track()
 
 
-actor_param_list = [16, 32, 8]
-critic_param_list = [16, 32, 8]
+actor_param_list = [2, 4, 8]
+critic_param_list = [4, 8]
 params_dict = {
-    "tuple_num": 100000,
-    "batch_size": 1024,
+    "tuple_num": 2000,
+    "batch_size": 128,
     "gamma": 0.5,
-    "critic_lr": 1e-3,
+    "critic_lr": 1e-2,
     "critic_eps": 8e-2,
-    "actor_lr": 1e-3,
+    "actor_lr": 1e-2,
     "actor_eps": 8e-2,
+    "sigma": 1e-2,
+    "tau": 5e-3,
 }
 
 runner = RunnerBase(
@@ -117,4 +110,6 @@ runner = RunnerBase(
 )
 
 runner.train()
+print(runner.alg.actor_critic.actor)
+print(runner.alg.actor_critic.critic)
 runner.visualize()

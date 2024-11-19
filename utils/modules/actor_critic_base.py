@@ -72,7 +72,6 @@ class ActorCriticBase(nn.Module):
                 self.critic_list.append(
                     nn.Linear(in_features=critic_param_list[-1], out_features=1)
                 )
-                self.critic_list.append(self.get_activation())
                 self.critic = nn.Sequential(*self.critic_list)
             else:
                 raise ValueError("critic_param_list not defined")

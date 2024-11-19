@@ -15,5 +15,5 @@ class EnvBase(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_action_range(self):
+    def get_range(self):
         pass

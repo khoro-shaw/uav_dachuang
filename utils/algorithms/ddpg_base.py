@@ -28,6 +28,8 @@ class DDPGBase:
     params_dict["critic_eps"]
     params_dict["actor_lr"]
     params_dict["actor_eps"]
+    params_dict["sigma"]
+    params_dict["tau"]
     """
 
     def __init__(
@@ -48,6 +50,17 @@ class DDPGBase:
             critic_param_list=critic_param_list,
             env=self.env,
         )
+        self.actor_critic_target = ActorCriticBase(
+            actor_param_list=actor_param_list,
+            critic_param_list=critic_param_list,
+            env=self.env,
+        )
+        self.actor_critic_target.actor.load_state_dict(
+            self.actor_critic.actor.state_dict()
+        )
+        self.actor_critic_target.critic.load_state_dict(
+            self.actor_critic.critic.state_dict()
+        )
         self.device = device
         self.rl_tuples_log = Storage(total_length=params_dict["tuple_num"])
         self.gamma = params_dict["gamma"]
@@ -56,6 +69,10 @@ class DDPGBase:
         self.critic_eps = params_dict["critic_eps"]
         self.actor_lr = params_dict["actor_lr"]
         self.actor_eps = params_dict["actor_eps"]
+        self.sigma = params_dict["sigma"]
+        self.tau = params_dict["tau"]
+        self.dims_dict = self.env.get_dims_dict()
+        self.obs_low, self.obs_high, self.act_low, self.act_high = self.env.get_range()
         self.critic_optimizer = torch.optim.Adam(
             params=self.actor_critic.critic.parameters(),
             lr=self.critic_lr,
@@ -68,8 +85,21 @@ class DDPGBase:
         )
 
     def take_one_step(self, actor_state, critic_state=None):
+
         action_tensor = self.actor_critic.actor(actor_state)
-        action = action_tensor.detach().numpy()
+        action = (self.act_high - self.act_low) * action_tensor.detach().numpy()
+
+        # 加噪声，提升explore
+        action += self.sigma * (
+            (self.act_high - self.act_low)
+            * np.random.random(self.dims_dict["action_dim"])
+        )
+
+        if action > self.act_high:
+            action = self.act_high
+        if action < self.act_low:
+            action = self.act_low
+
         if critic_state is None:
             reward, next_state, done = self.env.step(action=action)
             self.rl_tuples_log.append((actor_state, action, reward, next_state, done))
@@ -96,13 +126,10 @@ class DDPGBase:
         done = False
         state = self.env.reset()
         state_tensor = torch.tensor(data=state, dtype=torch.float)
-        r_log = []
         if not privileged:
             while not done:
                 state, done, reward = self.take_one_step(actor_state=state_tensor)
-                r_log.append(reward)
                 state_tensor = torch.tensor(data=state, dtype=torch.float)
-            return r_log
         else:
             actor_state_tensor = state_tensor
             critic_state_tensor = state_tensor
@@ -110,10 +137,8 @@ class DDPGBase:
                 actor_state, critic_state, done, reward = self.take_one_step(
                     actor_state=actor_state_tensor, critic_state=critic_state_tensor
                 )
-                r_log.append(reward)
                 actor_state_tensor = torch.tensor(data=actor_state, dtype=torch.float)
                 critic_state_tensor = torch.tensor(data=critic_state, dtype=torch.float)
-            return r_log
 
     def update(self):
         privileged = self.env.privileged
@@ -140,13 +165,22 @@ class DDPGBase:
                 .view(-1, 1)
                 .to(device=self.device)
             )
-            next_action_tensor = self.actor_critic.actor(next_state_tensor)
+
+            next_action_tensor = self.actor_critic_target.actor(next_state_tensor)
+
             next_sa_tensor = torch.cat((next_state_tensor, next_action_tensor), dim=1)
-            q_target = reward_tensor + self.gamma * self.actor_critic.critic(
-                next_sa_tensor
+
+            q_target = reward_tensor + self.gamma * (
+                self.actor_critic_target.critic(next_sa_tensor)
             ) * (1 - done_tensor)
+
             sa_tensor = torch.cat((state_tensor, action_tensor), dim=1)
+
             q_calculated = self.actor_critic.critic(sa_tensor)
+
+            # print(f"q_cal: {q_calculated.view(1,-1)}")
+            # print(f"q_tar: {q_target.view(1,-1)}")
+
             critic_loss = F.mse_loss(input=q_calculated, target=q_target)
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -159,9 +193,31 @@ class DDPGBase:
                     )
                 )
             )
+
+            # print(
+            #     f"act_loss: {self.actor_critic.critic(torch.cat((state_tensor, self.actor_critic.actor(state_tensor)), dim=1)).view(1,-1)}"
+            # )
+
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
+
+            # soft_update
+            for param_target, param in zip(
+                self.actor_critic_target.actor.parameters(),
+                self.actor_critic.actor.parameters(),
+            ):
+                param_target.data.copy_(
+                    param_target.data * (1.0 - self.tau) + param.data * self.tau
+                )
+            for param_target, param in zip(
+                self.actor_critic_target.critic.parameters(),
+                self.actor_critic.critic.parameters(),
+            ):
+                param_target.data.copy_(
+                    param_target.data * (1.0 - self.tau) + param.data * self.tau
+                )
+
             return actor_loss, critic_loss
         else:
             (
