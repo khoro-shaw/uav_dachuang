@@ -6,30 +6,28 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
-from modules import ActorCriticQ
-from storages import Storage
+from modules import ActorCriticProbs
 
 
-class DDPGBase:
+class PPOBase:
     """
-    DDPG算法，非常简单实现
-    离线策略算法，收敛速度，以及效果，均不如在线算法
+    PPO算法
+    经典的在线策略算法
     基本思路：
-    （1）与环境交互得到一条路径，把每条路径分块成一个个元组，每个元组作为一个数据单元
+    （1）与环境交互得到一条路径
     （2）actor网络给出各个维度的action值，比如前进的线速度大小，旋转的角速度大小之类的
     （3）critic网络给出Q_{t}值
     （4）reward + γ*Q_{t+1}给出critic的目标值
-    （5）actor网络的目标，是使得Q{t}值最大化
+    （5）actor网络的目标，是使得，替代目标，surroga_obj，的值最大化
     参数由env的dims_dict，和独立的params_dict给出
-    params_dict["tuple_num"]
-    params_dict["batch_size"]
     params_dict["gamma"]
+    params_dict["sigma"]
+    params_dict["lmbda"]
+    params_dict["eps"]
     params_dict["critic_lr"]
     params_dict["critic_eps"]
     params_dict["actor_lr"]
     params_dict["actor_eps"]
-    params_dict["sigma"]
-    params_dict["tau"]
     """
 
     def __init__(
@@ -45,33 +43,23 @@ class DDPGBase:
         ),
     ):
         self.env = env
-        self.actor_critic = ActorCriticQ(
+        self.actor_critic = ActorCriticProbs(
             actor_param_list=actor_param_list,
             critic_param_list=critic_param_list,
             env=self.env,
-        )
-        self.actor_critic_target = ActorCriticQ(
-            actor_param_list=actor_param_list,
-            critic_param_list=critic_param_list,
-            env=self.env,
-        )
-        self.actor_critic_target.actor.load_state_dict(
-            self.actor_critic.actor.state_dict()
-        )
-        self.actor_critic_target.critic.load_state_dict(
-            self.actor_critic.critic.state_dict()
         )
         self.device = device
-        self.rl_tuples_log = Storage(total_length=params_dict["tuple_num"])
         self.gamma = params_dict["gamma"]
-        self.batch_size = params_dict["batch_size"]
         self.critic_lr = params_dict["critic_lr"]
         self.critic_eps = params_dict["critic_eps"]
         self.actor_lr = params_dict["actor_lr"]
         self.actor_eps = params_dict["actor_eps"]
         self.sigma = params_dict["sigma"]
-        self.tau = params_dict["tau"]
+        self.lmbda = params_dict["lmbda"]
+        self.eps = params_dict["eps"]
         self.dims_dict = self.env.get_dims_dict()
+        self.tuples_log = []
+        self.action_dist = None
         self.obs_low, self.obs_high, self.act_low, self.act_high = self.env.get_range()
         self.critic_optimizer = torch.optim.Adam(
             params=self.actor_critic.critic.parameters(),
@@ -86,7 +74,11 @@ class DDPGBase:
 
     def take_one_step(self, actor_state, critic_state=None):
 
-        action_tensor = self.actor_critic.actor(actor_state)
+        mu_tensor, sigma_tensor = self.actor_critic.actor(actor_state)
+        self.action_dist = torch.distributions.Normal(loc=mu_tensor, scale=sigma_tensor)
+
+        action_tensor = self.action_dist.sample()
+
         action = (self.act_high - self.act_low) * action_tensor.detach().numpy()
 
         # 加噪声，提升explore
@@ -102,13 +94,13 @@ class DDPGBase:
 
         if critic_state is None:
             reward, next_state, done = self.env.step(action=action)
-            self.rl_tuples_log.append((actor_state, action, reward, next_state, done))
+            self.tuples_log.append((actor_state, action, reward, next_state, done))
             return next_state, done, reward
         else:
             reward, next_actor_state, next_critic_state, done = self.env.step(
                 action=action
             )
-            self.rl_tuples_log.append(
+            self.tuples_log.append(
                 (
                     actor_state,
                     critic_state,
@@ -126,10 +118,13 @@ class DDPGBase:
         done = False
         state = self.env.reset()
         state_tensor = torch.tensor(data=state, dtype=torch.float)
+
+        self.tuples_log = []  # tuples_log更新
         if not privileged:
             while not done:
                 state, done, reward = self.take_one_step(actor_state=state_tensor)
                 state_tensor = torch.tensor(data=state, dtype=torch.float)
+
         else:
             actor_state_tensor = state_tensor
             critic_state_tensor = state_tensor
@@ -143,9 +138,17 @@ class DDPGBase:
     def update(self):
         privileged = self.env.privileged
         if not privileged:
-            state, action, reward, next_state, done = self.rl_tuples_log.sample(
-                batch_size=self.batch_size
-            )
+            # 在线策略，一条路径对应一次更新
+            self.take_one_track()
+
+            state, action, reward, next_state, done = zip(*self.tuples_log)
+
+            state = np.array(state)
+            action = np.array(action)
+            reward = np.array(reward)
+            next_state = np.array(next_state)
+            done = np.array(done)
+
             state_tensor = torch.tensor(data=state, dtype=torch.float).to(
                 device=self.device
             )
@@ -166,50 +169,45 @@ class DDPGBase:
                 .to(device=self.device)
             )
 
-            next_action_tensor = self.actor_critic_target.actor(next_state_tensor)
-
-            next_sa_tensor = torch.cat((next_state_tensor, next_action_tensor), dim=1)
-
-            q_target = reward_tensor + self.gamma * (
-                self.actor_critic_target.critic(next_sa_tensor)
+            td_target = reward_tensor + self.gamma * self.actor_critic.critic(
+                next_state_tensor
             ) * (1 - done_tensor)
+            td_delta = td_target - self.actor_critic.critic(state_tensor)
 
-            sa_tensor = torch.cat((state_tensor, action_tensor), dim=1)
+            # GAE算法估计优势，Advantage = Q - Value
+            advantage = torch.zeros_like(td_delta[0])
+            advantage_log = []
+            for data in reversed(td_delta):
+                advantage = (data + advantage * self.lmbda * self.gamma).item()
+                advantage_log.append(advantage)
 
-            q_calculated = self.actor_critic.critic(sa_tensor)
+            advantage_tensor = torch.tensor(data=advantage_log[::-1], dtype=torch.float)
 
-            critic_loss = F.mse_loss(input=q_calculated, target=q_target)
-            self.critic_optimizer.zero_grad()
-            critic_loss.backward()
-            self.critic_optimizer.step()
+            old_log_prob = self.action_dist.log_prob(value=action_tensor)
 
-            actor_loss = -torch.mean(
-                self.actor_critic.critic(
-                    torch.cat(
-                        (state_tensor, self.actor_critic.actor(state_tensor)), dim=1
-                    )
-                )
+            mu, sigma = self.actor_critic.actor(state_tensor)
+            new_action_dist = torch.distributions.Normal(loc=mu, scale=sigma)
+            new_log_prob = new_action_dist.log_prob(action_tensor)
+
+            ratio = torch.exp(new_log_prob - old_log_prob)
+
+            surrogate_obj_1 = ratio * advantage_tensor
+            surrogate_obj_2 = (
+                torch.clamp(input=ratio, min=1 - self.eps, max=1 + self.eps)
+                * advantage_tensor
+            )
+
+            actor_loss = torch.mean(-torch.min(surrogate_obj_1, surrogate_obj_2))
+            critic_loss = torch.mean(
+                F.mse_loss(self.actor_critic.critic(state_tensor), td_target.detach())
             )
 
             self.actor_optimizer.zero_grad()
+            self.critic_optimizer.zero_grad()
             actor_loss.backward()
+            critic_loss.backward()
             self.actor_optimizer.step()
-
-            # soft_update
-            for param_target, param in zip(
-                self.actor_critic_target.actor.parameters(),
-                self.actor_critic.actor.parameters(),
-            ):
-                param_target.data.copy_(
-                    param_target.data * (1.0 - self.tau) + param.data * self.tau
-                )
-            for param_target, param in zip(
-                self.actor_critic_target.critic.parameters(),
-                self.actor_critic.critic.parameters(),
-            ):
-                param_target.data.copy_(
-                    param_target.data * (1.0 - self.tau) + param.data * self.tau
-                )
+            self.critic_optimizer.step()
 
             return actor_loss, critic_loss
         else:

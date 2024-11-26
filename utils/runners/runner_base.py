@@ -9,7 +9,7 @@ import sys
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 from envs import EnvGymMCC, EnvGymPen
-from algorithms import DDPGBase
+from algorithms import DDPGBase, PPOBase
 
 
 class RunnerBase:
@@ -22,12 +22,13 @@ class RunnerBase:
         actor_param_list,
         critic_param_list,
         params_dict,
-        track_num=2,
-        update_num=1000,
+        track_num=5,
+        update_num=500,
         env_class="EnvGymMCC",
-        alg_class="DDPGBase",
+        alg_class="PPOBase",
     ):
         self.env = eval(env_class)()
+        self.env_class = env_class
         self.env_test = eval(env_class)(render_mode="human")
         self.alg = eval(alg_class)(
             env=self.env,
@@ -52,9 +53,11 @@ class RunnerBase:
         if load:
             self.alg.load_model()
         for i in range(self.update_num):
-            for j in range(self.track_num):
-                self.alg.take_one_track()  # take one track
+            if self.env_class == "DDPGBase":  # 离线策略算法
+                for j in range(self.track_num):
+                    self.alg.take_one_track()  # take one track
             a_loss, c_loss = self.alg.update()  # update
+
             a_loss_log.append(a_loss)
             c_loss_log.append(c_loss)
             if (i + 1) % 10 == 0:
@@ -92,15 +95,17 @@ class RunnerBase:
 actor_param_list = [2, 4, 8]
 critic_param_list = [4, 8]
 params_dict = {
-    "tuple_num": 2000,
-    "batch_size": 128,
+    "tuple_num": 5000,
+    "batch_size": 512,
     "gamma": 0.5,
+    "eps": 0.2,
     "critic_lr": 1e-2,
     "critic_eps": 8e-2,
     "actor_lr": 1e-2,
     "actor_eps": 8e-2,
     "sigma": 1e-2,
     "tau": 5e-3,
+    "lmbda": 0.95,
 }
 
 runner = RunnerBase(

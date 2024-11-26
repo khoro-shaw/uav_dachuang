@@ -5,9 +5,9 @@ class ActorCriticBase(nn.Module):
     """
     定义一个actor网络和critic网络
     actor网络输入维度是actor_state_dim，输出维度是action_dim
-    critic网络输入维度是critic_state_dim + action_dim，输出维度是1
+    critic网络输入维度是critic_state_dim，输出维度是1
     actor网络和critic网络内部隐藏层数以及节点数分别由actor_param_list和critic_param_list定义
-    各种维度由环境env的dims_dict给出:（env作为参数，只是为了提供dims_dict）
+    各种维度由环境env的dims_dict给出:（env作为参数，只是为了提供self.dims_dict）
     dims_dict["actor_state_dim"]
     dims_dict["critic_state_dim"]
     dims_dict["action_dim"]
@@ -18,13 +18,13 @@ class ActorCriticBase(nn.Module):
         self.actor_list = []
         self.critic_list = []
         if env is not None:
-            dims_dict = env.get_dims_dict()
+            self.dims_dict = env.get_dims_dict()
             if actor_param_list is not None:
                 for idx, param in enumerate(actor_param_list):
                     if idx == 0:
                         self.actor_list.append(
                             nn.Linear(
-                                in_features=dims_dict["actor_state_dim"],
+                                in_features=self.dims_dict["actor_state_dim"],
                                 out_features=param,
                             )
                         )
@@ -41,7 +41,7 @@ class ActorCriticBase(nn.Module):
                 self.actor_list.append(
                     nn.Linear(
                         in_features=actor_param_list[-1],
-                        out_features=dims_dict["action_dim"],
+                        out_features=self.dims_dict["action_dim"],
                     )
                 )
                 self.actor_list.append(self.get_activation(act="tanh"))
@@ -54,8 +54,7 @@ class ActorCriticBase(nn.Module):
                     if idx == 0:
                         self.critic_list.append(
                             nn.Linear(
-                                in_features=dims_dict["critic_state_dim"]
-                                + dims_dict["action_dim"],
+                                in_features=self.dims_dict["critic_state_dim"],
                                 out_features=param,
                             )
                         )
