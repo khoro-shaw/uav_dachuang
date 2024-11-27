@@ -1,3 +1,9 @@
 # uav_dachuang
 
-## 目前还不是很想写readme，反正打开utils/runners/runner_base.py文件，能够看到目前运行的效果
+## 目前还不是很想写readme
+
+打开run文件夹
+
+train.py负责训练
+
+visualize.py用于看效果

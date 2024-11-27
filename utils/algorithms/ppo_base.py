@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import os
 import sys
+import time
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -214,11 +215,33 @@ class PPOBase:
             pass
 
     def save_model(self):
-        torch.save(self.actor_critic.actor.state_dict(), "./logs/actor.pth")
-        torch.save(self.actor_critic.critic.state_dict(), "./logs/critic.pth")
+        t = time.localtime()
+        os.makedirs(
+            f"./logs/ppo/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}"
+        )
+        torch.save(
+            self.actor_critic.actor.state_dict(),
+            f"./logs/ppo/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}/actor.pth",
+        )
+        torch.save(
+            self.actor_critic.critic.state_dict(),
+            f"./logs/ppo/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}/critic.pth",
+        )
+        torch.save(
+            self.actor_critic.actor.state_dict(),
+            "./logs/ppo/latest/actor.pth",
+        )
+        torch.save(
+            self.actor_critic.critic.state_dict(),
+            "./logs/ppo/latest/critic.pth",
+        )
 
-    def load_model(self):
-        state_dict_actor = torch.load("./logs/actor.pth")
-        state_dict_critic = torch.load("./logs/critic.pth")
+    def load_model(self, zeit=None):
+        if zeit is None:
+            state_dict_actor = torch.load("./logs/ppo/latest/actor.pth")
+            state_dict_critic = torch.load("./logs/ppo/latest/critic.pth")
+        else:
+            state_dict_actor = torch.load("./logs/ppo/" + zeit + "/actor.pth")
+            state_dict_critic = torch.load("./logs/ppo/" + zeit + "/critic.pth")
         self.actor_critic.actor.load_state_dict(state_dict_actor)
         self.actor_critic.critic.load_state_dict(state_dict_critic)

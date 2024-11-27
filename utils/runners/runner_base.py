@@ -74,7 +74,6 @@ class RunnerBase:
                 c_loss_log = []
         self.alg.save_model()
 
-    def visualize(self):
         update_log = list(range(len(self.actor_loss_log)))
         plt.plot(update_log, self.actor_loss_log)
         plt.xlabel("updates")
@@ -88,33 +87,6 @@ class RunnerBase:
         plt.title(f"critic_loss per 10 updates")
         plt.show()
 
+    def visualize(self):
         self.alg_test.load_model()
         self.alg_test.take_one_track()
-
-
-actor_param_list = [2, 4, 8]
-critic_param_list = [4, 8]
-params_dict = {
-    "tuple_num": 5000,
-    "batch_size": 512,
-    "gamma": 0.5,
-    "eps": 0.2,
-    "critic_lr": 1e-2,
-    "critic_eps": 8e-2,
-    "actor_lr": 1e-2,
-    "actor_eps": 8e-2,
-    "sigma": 1e-2,
-    "tau": 5e-3,
-    "lmbda": 0.95,
-}
-
-runner = RunnerBase(
-    actor_param_list=actor_param_list,
-    critic_param_list=critic_param_list,
-    params_dict=params_dict,
-)
-
-runner.train()
-print(runner.alg.actor_critic.actor)
-print(runner.alg.actor_critic.critic)
-runner.visualize()

@@ -5,7 +5,7 @@ from .actor_critic_base import ActorCriticBase
 class ActorCriticProbs(ActorCriticBase):
     """
     定义一个actor网络和critic网络
-    actor网络输入维度是actor_state_dim，输出维度是2 * action_dim，分别是高斯分布的期望和标准差
+    actor网络输入维度是actor_state_dim，输出是2个action_dim维度的张量，分别对应动作的高斯分布的期望和标准差
     critic网络输入维度是critic_state_dim，输出维度是1
     actor网络和critic网络内部隐藏层数以及节点数分别由actor_param_list和critic_param_list定义
     各种维度由环境env的dims_dict给出:（env作为参数，只是为了提供dims_dict）
