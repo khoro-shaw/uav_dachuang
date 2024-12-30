@@ -216,9 +216,19 @@ class PPOBase:
 
     def save_model(self):
         t = time.localtime()
-        os.makedirs(
+
+        folder = os.path.exists(
             f"./logs/ppo/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}"
         )
+        if not folder:
+            os.makedirs(
+                f"./logs/ppo/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}"
+            )
+
+        folder = os.path.exists("./logs/ppo/latest")
+        if not folder:
+            os.makedirs("./logs/ppo/latest")
+
         torch.save(
             self.actor_critic.actor.state_dict(),
             f"./logs/ppo/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}/actor.pth",

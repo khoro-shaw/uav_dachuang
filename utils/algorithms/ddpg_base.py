@@ -218,9 +218,19 @@ class DDPGBase:
 
     def save_model(self):
         t = time.localtime()
-        os.makedirs(
+
+        folder = os.path.exists(
             f"./logs/ddpg/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}"
         )
+        if not folder:
+            os.makedirs(
+                f"./logs/ddpg/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}"
+            )
+
+        folder = os.path.exists("./logs/ddpg/latest")
+        if not folder:
+            os.makedirs("./logs/ddpg/latest")
+
         torch.save(
             self.actor_critic.actor.state_dict(),
             f"./logs/ddpg/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}/actor.pth",

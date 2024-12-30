@@ -25,7 +25,7 @@ runner = RunnerBase(
     actor_param_list=actor_param_list,
     critic_param_list=critic_param_list,
     params_dict=params_dict,
-    env_class="EnvGymMCC",
+    env_class="EnvMavros",
     alg_class="PPOBase",
 )
 

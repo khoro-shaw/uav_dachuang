@@ -1,6 +1,4 @@
 import torch
-import numpy as np
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 import os
@@ -8,7 +6,7 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
-from envs import EnvGymMCC, EnvGymPen
+from envs import EnvGymMCC, EnvGymPen, EnvMavros
 from algorithms import DDPGBase, PPOBase
 
 
