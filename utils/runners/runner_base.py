@@ -6,7 +6,7 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
-from envs import EnvGymMCC, EnvGymPen, EnvMavros
+from envs import EnvGymMCC, EnvGymPen, EnvMavrosGazebo
 from algorithms import DDPGBase, PPOBase
 
 

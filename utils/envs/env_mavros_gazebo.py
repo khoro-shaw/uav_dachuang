@@ -27,7 +27,7 @@ from .env_base import EnvBase
 """
 
 
-class EnvMavros(EnvBase):
+class EnvMavrosGazebo(EnvBase):
     def __init__(
         self,
         seed_range=150,
