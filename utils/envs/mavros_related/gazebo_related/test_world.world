@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <world name="circular_actor_demo">
+    <!-- 基础环境配置 -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- 绕圈行走的Actor定义 -->
+      <actor name="walking_actor">
+      <pose>0 0 0 0 0 0</pose>
+      
+      <!-- 骨骼动画配置（walk.dae 需放在模型路径下）[1]() -->
+      <skin>
+        <filename>walk.dae</filename> 
+      </skin>
+      
+      <!-- 行走动画循环配置 -->
+      <animation name="walk_cycle">
+        <filename>walk.dae</filename> 
+        <interpolate_x>true</interpolate_x> <!-- 启用路径插值 -->
+        <scale>1.0</scale>
+      </animation> 
+
+      <!-- 圆周运动插件配置 -->
+      <plugin name="circular_motion" filename="libcircular_motion.so"> 
+        <radius>10.0</radius>     <!-- 圆周半径 -->
+        <angular_vel>0.5</angular_vel> <!-- 角速度(rad/s) -->
+        <center>5.0 5.0 1.0</center>    <!-- 圆心坐标 -->
+        <animation_speed>1.0</animation_speed> <!-- 动画播放速率 -->
+      </plugin>
+    
+    </actor>
+  </world>
+</sdf>

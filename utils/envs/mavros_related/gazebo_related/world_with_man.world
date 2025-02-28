@@ -1,0 +1,72 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+   <world name="default">
+      <!-- A ground plane -->
+      <include>
+         <uri>model://ground_plane</uri>
+      </include>
+      <!-- A global light source -->
+      <include>
+         <uri>model://sun</uri>
+      </include>
+      
+      <!-- An actor -->
+    <actor name="actor_walking">
+    <skin>
+        <filename>run.dae</filename>
+        <scale>1.0</scale>
+    </skin>
+
+    <animation name="walk">
+        <filename>run.dae</filename>
+        <interpolate_x>true</interpolate_x>
+    </animation>
+
+    <script>
+    <loop>false</loop>     >>>xun huan deng dai shi jian
+    <delay_start>0.500000</delay_start>
+    <auto_start>true</auto_start>
+        <trajectory id="0" type="walk" tension="0.6">
+            <waypoint>
+                <time>0</time>
+                <pose>-10 -10 0.0 0 0 0</pose>
+            </waypoint>
+            <waypoint>
+                <time>20</time>
+                <pose>10.0 -10 0.0 0 0 0</pose>
+            </waypoint>
+            <waypoint>
+                <time>20.5</time>
+                <pose>10 -10 0.0 0 0 1.57</pose>
+            </waypoint>
+            <waypoint>
+                <time>40</time>
+                <pose>10 10 0.0 0 0 1.57</pose>
+            </waypoint>
+            <waypoint>
+                <time>40.5</time>
+                <pose>10 10 0 0 0 3.142</pose>
+            </waypoint>
+            <waypoint>
+                <time>60</time>
+                <pose>-10 10 0 0 0 3.142</pose>
+            </waypoint>
+            <waypoint>
+                <time>60.5</time>
+                <pose>-10 10 0 0 0 -1.57</pose>
+            </waypoint>
+            <waypoint>
+                <time>80</time>
+                <pose>-10 -10 0.0 0 0 -1.57</pose>
+            </waypoint>
+            <waypoint>
+                <time>80.5</time>
+                <pose>0 0 0.0 0 0 0</pose>
+            </waypoint>
+        </trajectory>
+    </script>
+    
+    </actor>
+
+   </world>
+</sdf>
