@@ -22,13 +22,15 @@ from .mavros_related.mavros_env import MavrosEnv
 class EnvMavrosGazebo(EnvBase):
     def __init__(
         self,
+        seed_range=150,
         privileged=False,
     ):
         self.env = MavrosEnv()
+        self.seed_range = seed_range
         self.privileged = privileged
 
         # settings.sh中有两条命令行指令，分别是打开roscore和载入launch文件
-        os.system("sh mavros_related/settings/settings.sh")
+        # os.system("sh mavros_related/settings/settings.sh")
 
     def step(self, action):
         obs, reward, done = self.env.step(action=action)

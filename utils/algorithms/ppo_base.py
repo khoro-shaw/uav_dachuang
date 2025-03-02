@@ -4,6 +4,7 @@ import numpy as np
 import os
 import sys
 import time
+import rospy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -79,6 +80,7 @@ class PPOBase:
         self.action_dist = torch.distributions.Normal(loc=mu_tensor, scale=sigma_tensor)
 
         action_tensor = self.action_dist.sample()
+        # rospy.loginfo(action_tensor)
 
         action = (self.act_high - self.act_low) * action_tensor.detach().numpy()
 
@@ -87,11 +89,25 @@ class PPOBase:
             (self.act_high - self.act_low)
             * np.random.random(self.dims_dict["action_dim"])
         )
+        # rospy.loginfo(action)
 
-        if action > self.act_high:
-            action = self.act_high
-        if action < self.act_low:
-            action = self.act_low
+        action = torch.where(action > self.act_high, self.act_high, action)
+        action = torch.where(action < self.act_low, self.act_low, action)
+        # rospy.loginfo(action)
+
+        # 单位四元数归一化
+        qua_len = np.sqrt(
+            action[-1] ** 2
+            + action[-2] ** 2
+            # + action[-3] ** 2 + action[-4] ** 2
+        )
+        action[-1] = action[-1] / qua_len
+        action[-2] = action[-2] / qua_len
+        # action[-3] = action[-3] / qua_len
+        # action[-4] = action[-4] / qua_len
+
+        # rospy.loginfo(action)
+        # rospy.loginfo("-" * 15)
 
         if critic_state is None:
             reward, next_state, done = self.env.step(action=action)
@@ -143,19 +159,16 @@ class PPOBase:
             self.take_one_track()
 
             state, action, reward, next_state, done = zip(*self.tuples_log)
+            # Tensor, Tensor, float64, np.array, bool
 
-            state = np.array(state)
-            action = np.array(action)
+            # state = np.array(state)
+            # action = np.array(action)
             reward = np.array(reward)
             next_state = np.array(next_state)
             done = np.array(done)
 
-            state_tensor = torch.tensor(data=state, dtype=torch.float).to(
-                device=self.device
-            )
-            action_tensor = torch.tensor(data=action, dtype=torch.float).to(
-                device=self.device
-            )
+            state_tensor = torch.stack(tensors=state).to(device=self.device)
+            action_tensor = torch.stack(tensors=action).to(device=self.device)
             reward_tensor = (
                 torch.tensor(data=reward, dtype=torch.float)
                 .view(-1, 1)
@@ -182,7 +195,9 @@ class PPOBase:
                 advantage = (data + advantage * self.lmbda * self.gamma).item()
                 advantage_log.append(advantage)
 
-            advantage_tensor = torch.tensor(data=advantage_log[::-1], dtype=torch.float)
+            advantage_tensor = torch.tensor(
+                data=advantage_log[::-1], dtype=torch.float
+            ).unsqueeze(dim=-1)
 
             old_log_prob = self.action_dist.log_prob(value=action_tensor)
 

@@ -37,15 +37,22 @@ class MavrosEnv:
         self,
         model="iris_depth_camera",
     ):
-        # xyz的相对位移，yaw差，无人机的yaw，三个线速度，三个角速度
-        self.observation_dim = 11
+        # xyz的相对位移，yaw差，无人机的yaw，三个线速度
+        # 当前无人机的xyz，以及欧拉角
+        self.observation_dim = 13
 
-        # xyz轴的期望点，和朝向四元数
-        self.action_dim = 7
-        self.action_range = [[-5, -5, -5, -2, -2, -2, -2], [5, 5, 5, 2, 2, 2, 2]]
+        # xyz轴的期望点，和朝向四元数中的z和w
+        self.action_dim = 5
+        self.action_range = torch.tensor(
+            data=[[-5, -10, 1, -1, -1], [5, 10, 2, 1, 1]],
+            dtype=torch.float,
+        )
 
         self.uav_model_name = model
         self.position_input = [0.0 for i in range(self.action_dim)]
+
+        self.iter_counter = 0  # 计训练次数
+        self.past_action = []  # 计过去的动作
 
         self.x_diff = 0.0
         self.y_diff = 0.0
@@ -58,25 +65,36 @@ class MavrosEnv:
         self.x_ang = 0.0
         self.y_ang = 0.0
         self.z_ang = 0.0
+        self.roll_current = 0
+        self.pitch_current = 0
+        self.yaw_current = 0
 
-        self.current_state = None
-        self.current_pos = None
-        self.current_vel = None
-        self.gaz_link_state = None
-        self.gaz_model_state = None
+        self.current_state = State()
+        self.current_pos = PoseStamped()
+        self.current_vel = TwistStamped()
+        self.gaz_link_state = LinkStates()
+        self.gaz_model_state = ModelStates()
+
+        self.current_pos.pose.orientation.w = 1.0
 
         self.init_node()
 
     def step(self, action):
-        self.position_input = action
+        self.iter_counter += 1
 
+        self.position_input = action
+        self.past_action.append(action)
+
+        # action的0,1,2对应xyz的期望值
         self.testing_position.pose.position.x = self.position_input[0]
         self.testing_position.pose.position.y = self.position_input[1]
         self.testing_position.pose.position.z = self.position_input[2]
-        self.testing_position.pose.orientation.x = self.position_input[3]
-        self.testing_position.pose.orientation.y = self.position_input[4]
-        self.testing_position.pose.orientation.z = self.position_input[5]
-        self.testing_position.pose.orientation.w = self.position_input[6]
+
+        # action的后四个量，对应无人机应该有的朝向
+        # self.testing_position.pose.orientation.x = self.position_input[3]
+        # self.testing_position.pose.orientation.y = self.position_input[4]
+        self.testing_position.pose.orientation.z = self.position_input[-2]
+        self.testing_position.pose.orientation.w = self.position_input[-1]
 
         self.local_pos_pub.publish(self.testing_position)
 
@@ -84,18 +102,22 @@ class MavrosEnv:
 
         state_array = np.array(
             [
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
                 self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
                 self.yaw_diff,
-                self.yaw_current,
                 self.x_lin,
                 self.y_lin,
                 self.z_lin,
-                self.x_ang,
-                self.y_ang,
-                self.z_ang,
+                # self.x_ang,
+                # self.y_ang,
+                # self.z_ang,
             ]
         )
 
@@ -105,7 +127,7 @@ class MavrosEnv:
 
         return state_array, reward, done
 
-    def reset(self):
+    def reset(self, seed):
         rospy.loginfo("Env Re-setting")
         self.clear()
 
@@ -132,24 +154,52 @@ class MavrosEnv:
 
         state_array = np.array(
             [
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
                 self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
                 self.yaw_diff,
-                self.pitch_diff,
                 self.x_lin,
                 self.y_lin,
                 self.z_lin,
-                self.x_ang,
-                self.y_ang,
-                self.z_ang,
+                # self.x_ang,
+                # self.y_ang,
+                # self.z_ang,
             ]
         )
         rospy.loginfo("Env Re-set")
 
         for i in range(20):
             self.rate.sleep()
+
+        # 启动板外飞行模式和解锁
+        if (not self.current_state.armed) or self.current_state.mode != "OFFBOARD":
+            last_requset_time = rospy.Time.now()
+            while (
+                not self.current_state.armed
+            ) or self.current_state.mode != "OFFBOARD":
+                if self.current_state.mode != "OFFBOARD" and (
+                    rospy.Time.now() - last_requset_time
+                ) > rospy.Duration(0.1):
+                    if self.setmode_client.call(self.setmode_request).mode_sent == True:
+                        rospy.loginfo("OFFBOARD enabled")
+                    last_requset_time = rospy.Time.now()
+
+                elif not self.current_state.armed and (
+                    rospy.Time.now() - last_requset_time
+                ) > rospy.Duration(0.1):
+                    if self.arming_client.call(self.arming_request).success == True:
+                        rospy.loginfo("Vehicle armed")
+                    last_requset_time = rospy.Time.now()
+
+                self.local_pos_pub.publish(self.testing_position)
+
+                self.rate.sleep()
 
         return state_array
 
@@ -279,68 +329,81 @@ class MavrosEnv:
         model_names_list = self.gaz_model_state.name
         model_pos_list = self.gaz_model_state.pose
 
-        head_idx = link_names_list.index("actor_walking::Head")
-        man_idx = model_names_list.index("actor_walking")
-        drone_idx = model_names_list.index(self.uav_model_name)
+        if link_names_list is not None:
+            # head_idx = link_names_list.index("actor_walking::Head")
+            man_idx = model_names_list.index("actor_walking")
+            drone_idx = model_names_list.index(self.uav_model_name)
 
-        # ------------------------------------------
+            # ------------------------------------------
 
-        self.head_pose = link_pos_list[head_idx].position
-        self.man_pose = model_pos_list[man_idx].position
-        self.drone_pose = model_pos_list[drone_idx].position
+            # self.head_pose = link_pos_list[head_idx].position
+            self.man_pose = model_pos_list[man_idx].position
+            self.drone_pose = model_pos_list[drone_idx].position
 
-        self.head_orient = link_pos_list[head_idx].orientation
-        self.man_orient = model_pos_list[man_idx].orientation
-        self.drone_orient = model_pos_list[drone_idx].orientation
+            # self.head_orient = link_pos_list[head_idx].orientation
+            self.man_orient = model_pos_list[man_idx].orientation
+            self.drone_orient = model_pos_list[drone_idx].orientation
 
-        # --------------------------------------
-        # 精确位移差，姑且认为深度相机能给
-        self.x_diff = self.head_pose.x - self.drone_pose.x
-        self.y_diff = self.head_pose.y - self.drone_pose.y
-        self.z_diff = self.head_pose.z - self.drone_pose.z
+            # --------------------------------------
+            # 精确位移差，姑且认为深度相机能给
+            # self.x_diff = self.head_pose.x - self.drone_pose.x
+            # self.y_diff = self.head_pose.y - self.drone_pose.y
+            # self.z_diff = self.head_pose.z - self.drone_pose.z
+            self.x_diff = self.man_pose.x - self.drone_pose.x
+            self.y_diff = self.man_pose.y - self.drone_pose.y
+            self.z_diff = (self.man_pose.z + 0.4) - self.drone_pose.z  # 头的高度
 
-        # 当前无人机的欧拉角，由PX4内部数据计算而得
-        self.roll_current, self.pitch_current, self.yaw_current = (
-            self.quaternion_to_euler(
-                self.current_pos.pose.orientation.x,
-                self.current_pos.pose.orientation.y,
-                self.current_pos.pose.orientation.z,
-                self.current_pos.pose.orientation.w,
-            )
-        )  # radian
+            # 当前无人机的欧拉角，由PX4内部数据计算而得
+            self.roll_current, self.pitch_current, self.yaw_current = (
+                self.quaternion_to_euler(
+                    self.current_pos.pose.orientation.x,
+                    self.current_pos.pose.orientation.y,
+                    self.current_pos.pose.orientation.z,
+                    self.current_pos.pose.orientation.w,
+                )
+            )  # radian
 
-        # 无人机与人头的欧拉角，可计算xyz轴相差的角度
-        self.yaw_diff = math.atan2(self.y_diff, self.x_diff)
+            # 无人机与人头的欧拉角，可计算xyz轴相差的角度
+            self.yaw_diff = math.atan2(self.y_diff, self.x_diff)
 
-        xy_length = math.hypot(self.x_diff, self.y_diff)
-        self.pitch_diff = math.atan2(self.z_diff, xy_length)
+            xy_length = math.hypot(self.x_diff, self.y_diff)
+            self.pitch_diff = math.atan2(self.z_diff, xy_length)
 
-        # 无人机的线速度与角速度
-        self.x_lin = self.current_vel.twist.linear.x
-        self.y_lin = self.current_vel.twist.linear.y
-        self.z_lin = self.current_vel.twist.linear.z
-        self.x_ang = self.current_vel.twist.angular.x
-        self.y_ang = self.current_vel.twist.angular.y
-        self.z_ang = self.current_vel.twist.angular.z
+            # 无人机的线速度与角速度
+            self.x_lin = self.current_vel.twist.linear.x
+            self.y_lin = self.current_vel.twist.linear.y
+            self.z_lin = self.current_vel.twist.linear.z
+            self.x_ang = self.current_vel.twist.angular.x
+            self.y_ang = self.current_vel.twist.angular.y
+            self.z_ang = self.current_vel.twist.angular.z
 
     def reward_all(self):
         # 目前没有加上速度相关的值
         rew_dis = self.reward_dis()
         rew_yaw = self.reward_yaw()
-        return rew_dis + rew_yaw
+        rew_cont = self.reward_continuity()
+        rew_air = self.reward_airborne()
+        return rew_dis + rew_yaw + rew_cont + rew_air
 
     def reward_dis(self):
-        # 与目标保持0.5单位的安全距离
-        dis_sum = (
-            np.abs(np.abs(self.x_diff) - 0.5)
-            + np.abs(np.abs(self.y_diff) - 0.5)
-            + np.abs(np.abs(self.z_diff) - 0.5)
-        )
+        # 与目标的距离，越近越好
+        dis_sum = self.x_diff**2 + self.y_diff**2 + self.z_diff**2
         return -dis_sum
 
     def reward_yaw(self):
         # 使无人机朝向人头的位置
-        return -np.abs(self.yaw_diff - self.yaw_current)
+        return -((self.yaw_diff - self.yaw_current) ** 2)
+
+    def reward_continuity(self):
+        # 保证控制指令的连续性
+        if len(self.past_action) < 2:
+            return 0
+        else:
+            return -torch.sum((self.past_action[-2] - self.past_action[-1]) ** 2).item()
+
+    def reward_airborne(self):
+        # 奖励上天的无人机，且维持与头的高度
+        return -(self.current_pos.pose.position.z - 1.6)
 
     def reward_lin(self):
         # 速度应该有个限度，但是不知道怎么设置
@@ -350,7 +413,11 @@ class MavrosEnv:
         return self.x_ang + self.y_ang + self.z_ang
 
     def track_done(self):
-        pass
+        if self.iter_counter <= 10000:
+            return False
+        else:
+            self.iter_counter = 0
+            return True
 
     def clear(self):
         self.testing_position.pose.position.x = 0.0
@@ -417,18 +484,18 @@ class MavrosEnv:
         return [x, y, z, w]
 
 
-class TestNet(nn.Module):
-    def __init__(self):
-        super(TestNet, self).__init__()
-        self.fc1 = nn.Linear(in_features=13, out_features=26)
-        self.act1 = nn.ReLU()
-        self.fc2 = nn.Linear(in_features=26, out_features=13)
-        self.act2 = nn.Tanh()
+# class TestNet(nn.Module):
+#     def __init__(self):
+#         super(TestNet, self).__init__()
+#         self.fc1 = nn.Linear(in_features=13, out_features=26)
+#         self.act1 = nn.ReLU()
+#         self.fc2 = nn.Linear(in_features=26, out_features=13)
+#         self.act2 = nn.Tanh()
 
-    def forward(self, x):
-        x = self.act1(self.fc1(x))
-        x = self.act2(self.fc2(x))
-        return x
+#     def forward(self, x):
+#         x = self.act1(self.fc1(x))
+#         x = self.act2(self.fc2(x))
+#         return x
 
 
 # test_model = MavrosEnv()

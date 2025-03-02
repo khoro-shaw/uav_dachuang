@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 
 import os
 import sys
+import rospy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -27,7 +28,11 @@ class RunnerBase:
     ):
         self.env = eval(env_class)()
         self.env_class = env_class
-        self.env_test = eval(env_class)(render_mode="human")
+        self.env_test = (
+            eval(env_class)(render_mode="human")
+            if env_class != "EnvMavrosGazebo"
+            else eval(env_class)()
+        )
         self.alg = eval(alg_class)(
             env=self.env,
             actor_param_list=actor_param_list,
@@ -65,9 +70,14 @@ class RunnerBase:
                 self.critic_loss_log.append(
                     torch.mean(torch.tensor(c_loss_log[-10:])).item()
                 )
-                print(
-                    f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}",
-                )
+                if self.env_class != "EnvMavrosGazebo":
+                    print(
+                        f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}",
+                    )
+                else:
+                    rospy.loginfo(
+                        f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}"
+                    )
                 a_loss_log = []
                 c_loss_log = []
         self.alg.save_model()
