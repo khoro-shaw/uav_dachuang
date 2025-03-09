@@ -25,14 +25,14 @@ import matplotlib.pyplot as plt
 
 
 """
-    本代码是结合刘宇豪同志写的world文件
-    所写的跟踪代码
-    Gazebo: 红x，绿y，蓝z（右手）
-    yaw的范围，-180°~+180°
+    尝试使用模仿学习解决强化学习初始状态下，
+    网络参数容易训练成nan的问题，
+    利用位置信息，mavros/setpoint_position/local，
+    给速度控制单元，/mavros/setpoint_velocity/cmd_vel提供专家数据
 """
 
 
-class MavrosEnv:
+class ExpertDataGatherer:
     def __init__(
         self,
         model="iris_depth_camera",
@@ -43,10 +43,6 @@ class MavrosEnv:
 
         # 三个线速度，三个角速度
         self.action_dim = 6
-        self.action_range = torch.tensor(
-            data=[[-1, -1, -1, -10, -10, -10], [20 for i in range(self.action_dim)]],
-            dtype=torch.float,
-        )
 
         self.uav_model_name = model
         self.action_input = [0.0 for i in range(self.action_dim)]
@@ -142,6 +138,7 @@ class MavrosEnv:
                         rospy.loginfo("AUTO.LAND enabled")
                     last_requset_time = rospy.Time.now()
 
+                self.local_vel_pub.publish(self.testing_velocity)
                 self.local_vel_pub.publish(self.testing_velocity)
 
                 self.rate.sleep()
@@ -486,3 +483,35 @@ class MavrosEnv:
         z = sy * cp * cr - cy * sp * sr
 
         return [x, y, z, w]
+
+
+test_model = ExpertDataGatherer()
+
+action_list = [0.0 for i in range(test_model.action_dim)]
+action_list[-1] = 1.0
+
+for j in range(2):
+    i = 0
+    while 1:
+        # --------------------------------
+        action_list[0] = test_model.x_diff + test_model.current_pos.pose.position.x
+        action_list[1] = test_model.y_diff + test_model.current_pos.pose.position.y
+        action_list[2] = test_model.z_diff + test_model.current_pos.pose.position.z
+
+        action_list[-2] = math.sin(0.5 * (test_model.yaw_diff))
+        action_list[-1] = math.cos(0.5 * (test_model.yaw_diff))
+
+        # --------------以上可用神经网络取代-------------------------
+
+        # 得到的值可以再次喂给神经网络
+        # state_array, _, _ = test_model.step(action=action_list)
+        # state_itr.append(state_array)
+        state_array = test_model.step(action=action_list)
+
+        test_model.rate.sleep()
+        i += 1
+
+        if i > 300:
+            state_array = test_model.reset()
+            test_model.init_node()
+            break

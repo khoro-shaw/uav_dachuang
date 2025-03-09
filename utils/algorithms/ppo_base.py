@@ -25,6 +25,7 @@ class PPOBase:
     params_dict["gamma"]
     params_dict["sigma"]
     params_dict["lmbda"]
+    params_dict["epochs"]
     params_dict["eps"]
     params_dict["critic_lr"]
     params_dict["critic_eps"]
@@ -58,6 +59,7 @@ class PPOBase:
         self.actor_eps = params_dict["actor_eps"]
         self.sigma = params_dict["sigma"]
         self.lmbda = params_dict["lmbda"]
+        self.epochs = params_dict["epochs"]
         self.eps = params_dict["eps"]
         self.dims_dict = self.env.get_dims_dict()
         self.tuples_log = []
@@ -77,12 +79,18 @@ class PPOBase:
     def take_one_step(self, actor_state, critic_state=None):
 
         mu_tensor, sigma_tensor = self.actor_critic.actor(actor_state)
+        # rospy.loginfo(mu_tensor)
+        # rospy.loginfo(sigma_tensor)
+        # rospy.loginfo("-" * 15)
+
         self.action_dist = torch.distributions.Normal(loc=mu_tensor, scale=sigma_tensor)
 
         action_tensor = self.action_dist.sample()
         # rospy.loginfo(action_tensor)
 
-        action = (self.act_high - self.act_low) * action_tensor.detach().numpy()
+        action = (
+            self.act_high - self.act_low
+        ) * action_tensor.detach().numpy() + self.act_low
 
         # 加噪声，提升explore
         action += self.sigma * (
@@ -94,17 +102,6 @@ class PPOBase:
         action = torch.where(action > self.act_high, self.act_high, action)
         action = torch.where(action < self.act_low, self.act_low, action)
         # rospy.loginfo(action)
-
-        # 单位四元数归一化
-        qua_len = np.sqrt(
-            action[-1] ** 2
-            + action[-2] ** 2
-            # + action[-3] ** 2 + action[-4] ** 2
-        )
-        action[-1] = action[-1] / qua_len
-        action[-2] = action[-2] / qua_len
-        # action[-3] = action[-3] / qua_len
-        # action[-4] = action[-4] / qua_len
 
         # rospy.loginfo(action)
         # rospy.loginfo("-" * 15)
@@ -201,29 +198,32 @@ class PPOBase:
 
             old_log_prob = self.action_dist.log_prob(value=action_tensor)
 
-            mu, sigma = self.actor_critic.actor(state_tensor)
-            new_action_dist = torch.distributions.Normal(loc=mu, scale=sigma)
-            new_log_prob = new_action_dist.log_prob(action_tensor)
+            for i in range(self.epochs):
+                mu, sigma = self.actor_critic.actor(state_tensor)
+                new_action_dist = torch.distributions.Normal(loc=mu, scale=sigma)
+                new_log_prob = new_action_dist.log_prob(action_tensor)
 
-            ratio = torch.exp(new_log_prob - old_log_prob)
+                ratio = torch.exp(new_log_prob - old_log_prob)
 
-            surrogate_obj_1 = ratio * advantage_tensor
-            surrogate_obj_2 = (
-                torch.clamp(input=ratio, min=1 - self.eps, max=1 + self.eps)
-                * advantage_tensor
-            )
+                surrogate_obj_1 = ratio * advantage_tensor
+                surrogate_obj_2 = (
+                    torch.clamp(input=ratio, min=1 - self.eps, max=1 + self.eps)
+                    * advantage_tensor
+                )
 
-            actor_loss = torch.mean(-torch.min(surrogate_obj_1, surrogate_obj_2))
-            critic_loss = torch.mean(
-                F.mse_loss(self.actor_critic.critic(state_tensor), td_target.detach())
-            )
+                actor_loss = torch.mean(-torch.min(surrogate_obj_1, surrogate_obj_2))
+                critic_loss = torch.mean(
+                    F.mse_loss(
+                        self.actor_critic.critic(state_tensor), td_target.detach()
+                    )
+                )
 
-            self.actor_optimizer.zero_grad()
-            self.critic_optimizer.zero_grad()
-            actor_loss.backward()
-            critic_loss.backward()
-            self.actor_optimizer.step()
-            self.critic_optimizer.step()
+                self.actor_optimizer.zero_grad()
+                self.critic_optimizer.zero_grad()
+                actor_loss.backward()
+                critic_loss.backward()
+                self.actor_optimizer.step()
+                self.critic_optimizer.step()
 
             return actor_loss, critic_loss
         else:

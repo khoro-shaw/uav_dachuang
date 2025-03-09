@@ -52,12 +52,22 @@ class ProbsNet(nn.Module):
             )
             self.act_sigma = self.get_activation("softplus")
 
+        self._initialize_weights()
+
     def forward(self, x):
         for i in range(self.num):
             x = self.act_list[i](self.fc_list[i](x))
-        mu = self.act_mu(self.fc_mu(x))
+        mu = 2.0 * self.act_mu(self.fc_mu(x))
         std = self.act_sigma(self.fc_sigma(x))
         return mu, std
+
+    def _initialize_weights(self):
+        # 对全连接层进行Kaiming初始化
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode="fan_in", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
     def get_activation(self, act="relu"):
         if act == "elu":

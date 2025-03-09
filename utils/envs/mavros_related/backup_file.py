@@ -37,19 +37,20 @@ class MavrosEnv:
         self,
         model="iris_depth_camera",
     ):
+        # 当前无人机的xyz，当前的三个欧拉角 (6)
         # xyz的相对位移，相对yaw (4)
         # 三个线速度，三个角速度 (6)
-        self.observation_dim = 10
+        self.observation_dim = 16
 
-        # 三个线速度，三个角速度
-        self.action_dim = 6
+        # xyz轴的期望点，和朝向四元数中的z和w
+        self.action_dim = 5
         self.action_range = torch.tensor(
-            data=[[-1, -1, -1, -10, -10, -10], [20 for i in range(self.action_dim)]],
+            data=[[-5, -10, 1, -1, -1], [5, 10, 2, 1, 1]],
             dtype=torch.float,
         )
 
         self.uav_model_name = model
-        self.action_input = [0.0 for i in range(self.action_dim)]
+        self.position_input = [0.0 for i in range(self.action_dim)]
 
         self.iter_counter = 0  # 计训练次数
         self.past_action = []  # 计过去的动作
@@ -65,9 +66,9 @@ class MavrosEnv:
         self.x_ang = 0.0
         self.y_ang = 0.0
         self.z_ang = 0.0
-        self.roll_current = 0.0
-        self.pitch_current = 0.0
-        self.yaw_current = 0.0
+        self.roll_current = 0
+        self.pitch_current = 0
+        self.yaw_current = 0
 
         self.current_state = State()
         self.current_pos = PoseStamped()
@@ -82,29 +83,30 @@ class MavrosEnv:
     def step(self, action):
         self.iter_counter += 1
 
-        self.action_input = action
+        self.position_input = action
         self.past_action.append(action)
 
-        self.testing_velocity.twist.linear.x = self.action_input[0]
-        self.testing_velocity.twist.linear.y = self.action_input[1]
-        self.testing_velocity.twist.linear.z = self.action_input[2]
+        # action的0,1,2对应xyz的期望值
+        self.testing_velocity.twist.linear.x = self.position_input[0]
+        self.testing_velocity.twist.linear.y = self.position_input[1]
+        self.testing_velocity.twist.linear.z = self.position_input[2]
 
-        self.testing_velocity.twist.angular.x = self.action_input[-3]
-        self.testing_velocity.twist.angular.y = self.action_input[-2]
-        self.testing_velocity.twist.angular.z = self.action_input[-1]
+        # self.testing_velocity.twist.angular.y = self.position_input[-2]
+        # self.testing_velocity.twist.angular.z = self.position_input[-1]
 
+        self.local_pos_pub.publish(self.testing_position)
         self.local_vel_pub.publish(self.testing_velocity)
 
         self.get_obs()
 
         state_array = np.array(
             [
-                # self.current_pos.pose.position.x,
-                # self.current_pos.pose.position.y,
-                # self.current_pos.pose.position.z,
-                # self.roll_current,
-                # self.pitch_current,
-                # self.yaw_current,
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
+                self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
@@ -118,13 +120,14 @@ class MavrosEnv:
             ]
         )
 
-        reward = self.reward_all()
+        # reward = self.reward_all()
 
-        done = self.track_done()
+        # done = self.track_done()
 
-        return state_array, reward, done
+        # return state_array, reward, done
+        return state_array
 
-    def reset(self, seed=None):
+    def reset(self, seed):
         rospy.loginfo("Env Re-setting")
         self.clear()
 
@@ -142,6 +145,7 @@ class MavrosEnv:
                         rospy.loginfo("AUTO.LAND enabled")
                     last_requset_time = rospy.Time.now()
 
+                self.local_pos_pub.publish(self.testing_position)
                 self.local_vel_pub.publish(self.testing_velocity)
 
                 self.rate.sleep()
@@ -151,12 +155,12 @@ class MavrosEnv:
 
         state_array = np.array(
             [
-                # self.current_pos.pose.position.x,
-                # self.current_pos.pose.position.y,
-                # self.current_pos.pose.position.z,
-                # self.roll_current,
-                # self.pitch_current,
-                # self.yaw_current,
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
+                self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
@@ -194,6 +198,7 @@ class MavrosEnv:
                         rospy.loginfo("Vehicle armed")
                     last_requset_time = rospy.Time.now()
 
+                self.local_pos_pub.publish(self.testing_position)
                 self.local_vel_pub.publish(self.testing_velocity)
 
                 self.rate.sleep()
@@ -317,6 +322,7 @@ class MavrosEnv:
                         rospy.loginfo("Vehicle armed")
                     last_requset_time = rospy.Time.now()
 
+                self.local_pos_pub.publish(self.testing_position)
                 self.local_vel_pub.publish(self.testing_velocity)
 
                 self.rate.sleep()
@@ -331,15 +337,13 @@ class MavrosEnv:
         model_pos_list = self.gaz_model_state.pose
 
         if link_names_list is not None:
-            # rospy.loginfo(link_names_list)
-            # rospy.loginfo(model_names_list)
-            head_idx = link_names_list.index("actor_walking::Head")
+            # head_idx = link_names_list.index("actor_walking::Head")
             man_idx = model_names_list.index("actor_walking")
             drone_idx = model_names_list.index(self.uav_model_name)
 
             # ------------------------------------------
 
-            self.head_pose = link_pos_list[head_idx].position
+            # self.head_pose = link_pos_list[head_idx].position
             self.man_pose = model_pos_list[man_idx].position
             self.drone_pose = model_pos_list[drone_idx].position
 
@@ -349,12 +353,12 @@ class MavrosEnv:
 
             # --------------------------------------
             # 精确位移差，姑且认为深度相机能给
-            self.x_diff = self.head_pose.x - self.drone_pose.x
-            self.y_diff = self.head_pose.y - self.drone_pose.y
-            self.z_diff = self.head_pose.z - self.drone_pose.z
-            # self.x_diff = self.man_pose.x - self.drone_pose.x
-            # self.y_diff = self.man_pose.y - self.drone_pose.y
-            # self.z_diff = (self.man_pose.z + 0.4) - self.drone_pose.z  # 头的高度
+            # self.x_diff = self.head_pose.x - self.drone_pose.x
+            # self.y_diff = self.head_pose.y - self.drone_pose.y
+            # self.z_diff = self.head_pose.z - self.drone_pose.z
+            self.x_diff = self.man_pose.x - self.drone_pose.x
+            self.y_diff = self.man_pose.y - self.drone_pose.y
+            self.z_diff = (self.man_pose.z + 0.4) - self.drone_pose.z  # 头的高度
 
             # 当前无人机的欧拉角，由PX4内部数据计算而得
             self.roll_current, self.pitch_current, self.yaw_current = (
@@ -380,57 +384,56 @@ class MavrosEnv:
             self.y_ang = self.current_vel.twist.angular.y
             self.z_ang = self.current_vel.twist.angular.z
 
-    def reward_all(self):
-        # 目前没有加上速度相关的值
-        rew_dis = self.reward_dis()
-        rew_yaw = self.reward_yaw()
-        rew_cont = self.reward_continuity()
-        rew_air = self.reward_airborne()
-        return rew_dis + rew_yaw + rew_cont + rew_air
+    # def reward_all(self):
+    #     # 目前没有加上速度相关的值
+    #     rew_dis = self.reward_dis()
+    #     rew_yaw = self.reward_yaw()
+    #     rew_cont = self.reward_continuity()
+    #     rew_air = self.reward_airborne()
+    #     return rew_dis + rew_yaw + rew_cont + rew_air
 
-    def reward_dis(self):
-        # 与目标的距离，越近越好
-        dis_sum = self.x_diff**2 + self.y_diff**2 + self.z_diff**2
-        return -np.log(dis_sum).item()
+    # def reward_dis(self):
+    #     # 与目标的距离，越近越好
+    #     dis_sum = self.x_diff**2 + self.y_diff**2 + self.z_diff**2
+    #     return -dis_sum
 
-    def reward_yaw(self):
-        # 使无人机朝向人头的位置
-        return -np.log((self.yaw_diff - self.yaw_current) ** 2).item()
+    # def reward_yaw(self):
+    #     # 使无人机朝向人头的位置
+    #     return -((self.yaw_diff - self.yaw_current) ** 2)
 
-    def reward_continuity(self):
-        # 保证控制指令的连续性
-        if len(self.past_action) < 2:
-            return 0
-        else:
-            return -torch.log(
-                torch.sum((self.past_action[-2] - self.past_action[-1]) ** 2)
-            ).item()
+    # def reward_continuity(self):
+    #     # 保证控制指令的连续性
+    #     if len(self.past_action) < 2:
+    #         return 0
+    #     else:
+    #         return -torch.sum((self.past_action[-2] - self.past_action[-1]) ** 2).item()
 
-    def reward_airborne(self):
-        # 奖励上天的无人机
-        return self.current_pos.pose.position.z
+    # def reward_airborne(self):
+    #     # 奖励上天的无人机，且维持与头的高度
+    #     return -(self.current_pos.pose.position.z - 1.6)
 
-    def reward_lin(self):
-        # 速度应该有个限度，但是不知道怎么设置
-        return self.x_lin + self.y_lin + self.z_lin
+    # def reward_lin(self):
+    #     # 速度应该有个限度，但是不知道怎么设置
+    #     return self.x_lin + self.y_lin + self.z_lin
 
-    def reward_ang(self):
-        return self.x_ang + self.y_ang + self.z_ang
+    # def reward_ang(self):
+    #     return self.x_ang + self.y_ang + self.z_ang
 
-    def track_done(self):
-        if self.iter_counter <= 10000:
-            return False
-        else:
-            self.iter_counter = 0
-            return True
+    # def track_done(self):
+    #     if self.iter_counter <= 10000:
+    #         return False
+    #     else:
+    #         self.iter_counter = 0
+    #         return True
 
     def clear(self):
-        self.testing_velocity.twist.linear.x = 0.0
-        self.testing_velocity.twist.linear.y = 0.0
-        self.testing_velocity.twist.linear.z = 0.0
-        self.testing_velocity.twist.angular.x = 0.0
-        self.testing_velocity.twist.angular.y = 0.0
-        self.testing_velocity.twist.angular.z = 0.0
+        self.testing_position.pose.position.x = 0.0
+        self.testing_position.pose.position.y = 0.0
+        self.testing_position.pose.position.z = 0.0
+        self.testing_position.pose.orientation.x = 0.0
+        self.testing_position.pose.orientation.y = 0.0
+        self.testing_position.pose.orientation.z = 0.0
+        self.testing_position.pose.orientation.w = 1.0
 
     def quaternion_to_euler(self, x, y, z, w):
         """
@@ -486,3 +489,66 @@ class MavrosEnv:
         z = sy * cp * cr - cy * sp * sr
 
         return [x, y, z, w]
+
+
+# class TestNet(nn.Module):
+#     def __init__(self):
+#         super(TestNet, self).__init__()
+#         self.fc1 = nn.Linear(in_features=13, out_features=26)
+#         self.act1 = nn.ReLU()
+#         self.fc2 = nn.Linear(in_features=26, out_features=13)
+#         self.act2 = nn.Tanh()
+
+#     def forward(self, x):
+#         x = self.act1(self.fc1(x))
+#         x = self.act2(self.fc2(x))
+#         return x
+
+
+test_model = MavrosEnv()
+
+action_list = [0.0 for i in range(test_model.action_dim)]
+action_list[-1] = 1.0
+
+state_list = []
+for j in range(2):
+    i = 0
+    # state_itr = []
+    while 1:
+
+        # --------------------------------
+        action_list[0] = 0.0 if i < 150 else 10.0
+        action_list[1] = 0.0
+        action_list[2] = 50.0 if i < 100 else 10.0
+
+        # action_list[-2] = math.sin(0.5 * (test_model.yaw_diff))
+        # action_list[-1] = math.cos(0.5 * (test_model.yaw_diff))
+
+        # --------------以上可用神经网络取代-------------------------
+
+        # 得到的值可以再次喂给神经网络
+        # state_array, _, _ = test_model.step(action=action_list)
+        # state_itr.append(state_array)
+        state_array = test_model.step(action=action_list)
+
+        test_model.rate.sleep()
+        i += 1
+
+        if i > 300:
+            state_array = test_model.reset()
+            test_model.init_node()
+            break
+
+    # state_list.append(torch.tensor(np.array(state_itr)))
+
+# plt.plot(list(range(len(state_list[0][:, 0]))), state_list[0][:, 0])
+# plt.xlabel("time")
+# plt.ylabel("z")
+# plt.title(f"state_list[0]")
+# plt.show()
+
+# plt.plot(list(range(len(state_list[1][:, 0]))), state_list[1][:, 0])
+# plt.xlabel("time")
+# plt.ylabel("z")
+# plt.title(f"state_list[1]")
+# plt.show()

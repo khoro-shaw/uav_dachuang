@@ -22,7 +22,7 @@ class RunnerBase:
         critic_param_list,
         params_dict,
         track_num=5,
-        update_num=500,
+        update_num=5000,
         env_class="EnvGymMCC",
         alg_class="PPOBase",
     ):
