@@ -44,6 +44,7 @@ class PPOBase:
             if torch.cuda.is_available()
             else "mps" if torch.backends.mps.is_available() else "cpu"
         ),
+        load_flag=False,
     ):
         self.env = env
         self.actor_critic = ActorCriticProbs(
@@ -51,6 +52,8 @@ class PPOBase:
             critic_param_list=critic_param_list,
             env=self.env,
         )
+        if load_flag:  # 继续训练已经训练好的
+            self.load_model()
         self.device = device
         self.gamma = params_dict["gamma"]
         self.critic_lr = params_dict["critic_lr"]
@@ -261,12 +264,13 @@ class PPOBase:
             "./logs/ppo/latest/critic.pth",
         )
 
-    def load_model(self, zeit=None):
-        if zeit is None:
-            state_dict_actor = torch.load("./logs/ppo/latest/actor.pth")
-            state_dict_critic = torch.load("./logs/ppo/latest/critic.pth")
-        else:
-            state_dict_actor = torch.load("./logs/ppo/" + zeit + "/actor.pth")
-            state_dict_critic = torch.load("./logs/ppo/" + zeit + "/critic.pth")
-        self.actor_critic.actor.load_state_dict(state_dict_actor)
-        self.actor_critic.critic.load_state_dict(state_dict_critic)
+    def load_model(self):
+        if os.path.exists("./logs/ppo/latest/actor.pth"):
+            state_dict_actor = torch.load(
+                "./logs/ppo/latest/actor.pth", map_location=torch.device("cpu")
+            )
+            self.actor_critic.actor.load_state_dict(state_dict_actor)
+            # state_dict_critic = torch.load(
+            #     "./logs/ppo/latest/critic.pth", map_location=torch.device("cpu")
+            # )
+            # self.actor_critic.critic.load_state_dict(state_dict_critic)

@@ -12,7 +12,8 @@ from mavros_msgs.srv import (
     SetMode,
     SetModeRequest,
 )
-from gazebo_msgs.msg import LinkStates, ModelStates
+from gazebo_msgs.msg import LinkStates, ModelStates  # get
+from gazebo_msgs.msg import LinkState, ModelState  # give
 
 from std_srvs.srv import Empty
 
@@ -22,6 +23,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import matplotlib.pyplot as plt
+import pandas as pd
+import time
+import os
 
 
 """
@@ -38,17 +42,15 @@ class ExpertDataGatherer:
         model="iris_depth_camera",
     ):
         # xyz的相对位移，相对yaw (4)
-        # 三个线速度，三个角速度 (6)
+        # 三个线位置，三个角位置 (6)
         self.observation_dim = 10
 
-        # 三个线速度，三个角速度
-        self.action_dim = 6
+        # xyz位置（3）
+        # 以及与yaw值相关的两个四元数（2）
+        self.action_dim = 5
 
         self.uav_model_name = model
         self.action_input = [0.0 for i in range(self.action_dim)]
-
-        self.iter_counter = 0  # 计训练次数
-        self.past_action = []  # 计过去的动作
 
         self.x_diff = 0.0
         self.y_diff = 0.0
@@ -71,7 +73,7 @@ class ExpertDataGatherer:
         self.gaz_link_state = LinkStates()
         self.gaz_model_state = ModelStates()
 
-        self.current_pos.pose.orientation.w = 1.0
+        self.iter_counter = 0
 
         self.init_node()
 
@@ -79,48 +81,51 @@ class ExpertDataGatherer:
         self.iter_counter += 1
 
         self.action_input = action
-        self.past_action.append(action)
 
-        self.testing_velocity.twist.linear.x = self.action_input[0]
-        self.testing_velocity.twist.linear.y = self.action_input[1]
-        self.testing_velocity.twist.linear.z = self.action_input[2]
+        self.testing_position.pose.position.x = self.action_input[0]
+        self.testing_position.pose.position.y = self.action_input[1]
+        self.testing_position.pose.position.z = self.action_input[2]
 
-        self.testing_velocity.twist.angular.x = self.action_input[-3]
-        self.testing_velocity.twist.angular.y = self.action_input[-2]
-        self.testing_velocity.twist.angular.z = self.action_input[-1]
+        self.testing_position.pose.orientation.z = self.action_input[-2]
+        self.testing_position.pose.orientation.w = self.action_input[-1]
 
+        self.local_pos_pub.publish(self.testing_position)
         self.local_vel_pub.publish(self.testing_velocity)
 
         self.get_obs()
 
         state_array = np.array(
             [
-                # self.current_pos.pose.position.x,
-                # self.current_pos.pose.position.y,
-                # self.current_pos.pose.position.z,
-                # self.roll_current,
-                # self.pitch_current,
-                # self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
                 self.yaw_diff,
-                self.x_lin,
-                self.y_lin,
-                self.z_lin,
-                self.x_ang,
-                self.y_ang,
-                self.z_ang,
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
+                self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
+            ]
+        )
+        action_array = np.array(
+            [
+                self.current_vel.twist.linear.x,
+                self.current_vel.twist.linear.y,
+                self.current_vel.twist.linear.z,
+                self.current_vel.twist.angular.x,
+                self.current_vel.twist.angular.y,
+                self.current_vel.twist.angular.z,
             ]
         )
 
-        reward = self.reward_all()
-
         done = self.track_done()
-
-        return state_array, reward, done
+        return state_array, action_array, done
 
     def reset(self, seed=None):
+        """
+        需要好好研究下该怎么真正地reset
+        """
         rospy.loginfo("Env Re-setting")
         self.clear()
 
@@ -138,7 +143,7 @@ class ExpertDataGatherer:
                         rospy.loginfo("AUTO.LAND enabled")
                     last_requset_time = rospy.Time.now()
 
-                self.local_vel_pub.publish(self.testing_velocity)
+                self.local_pos_pub.publish(self.testing_position)
                 self.local_vel_pub.publish(self.testing_velocity)
 
                 self.rate.sleep()
@@ -148,25 +153,27 @@ class ExpertDataGatherer:
 
         state_array = np.array(
             [
-                # self.current_pos.pose.position.x,
-                # self.current_pos.pose.position.y,
-                # self.current_pos.pose.position.z,
-                # self.roll_current,
-                # self.pitch_current,
-                # self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
                 self.yaw_diff,
-                self.x_lin,
-                self.y_lin,
-                self.z_lin,
-                self.x_ang,
-                self.y_ang,
-                self.z_ang,
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
+                self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
             ]
         )
         rospy.loginfo("Env Re-set")
+
+        for i in range(20):
+            self.rate.sleep()
+
+        # 无人机复位
+        for i in range(20):
+            self.model_state_pub.publish(self.testing_model_state)
+            self.rate.sleep()
 
         for i in range(20):
             self.rate.sleep()
@@ -191,6 +198,7 @@ class ExpertDataGatherer:
                         rospy.loginfo("Vehicle armed")
                     last_requset_time = rospy.Time.now()
 
+                self.local_pos_pub.publish(self.testing_position)
                 self.local_vel_pub.publish(self.testing_velocity)
 
                 self.rate.sleep()
@@ -259,6 +267,13 @@ class ExpertDataGatherer:
             "/mavros/setpoint_velocity/cmd_vel", TwistStamped, queue_size=1
         )
 
+        self.link_state_pub = rospy.Publisher(
+            "/gazebo/set_link_state", LinkState, queue_size=1
+        )
+        self.model_state_pub = rospy.Publisher(
+            "/gazebo/set_model_state", ModelState, queue_size=1
+        )
+
         # Setpoint publishing MUST be faster than 2Hz
         period = 0.1  # seconds
         self.rate = rospy.Rate(1.0 / period)
@@ -286,7 +301,25 @@ class ExpertDataGatherer:
 
         self.testing_position = PoseStamped()
         self.testing_velocity = TwistStamped()
-        # self.position_target = PositionTarget()
+        self.testing_link_state = LinkState()
+        self.testing_model_state = ModelState()
+
+        # 设置ModelStates和LinkStates（反正这两个结构体的值是不变的）
+        self.testing_model_state.model_name = self.uav_model_name
+        self.testing_model_state.pose.position.x = 0.0
+        self.testing_model_state.pose.position.y = 0.0
+        self.testing_model_state.pose.position.z = 0.5  # 缓冲量，防止穿模
+        self.testing_model_state.pose.orientation.x = 0.0
+        self.testing_model_state.pose.orientation.y = 0.0
+        self.testing_model_state.pose.orientation.z = 0.0
+        self.testing_model_state.pose.orientation.w = 1.0
+        self.testing_model_state.twist.linear.x = 0.0
+        self.testing_model_state.twist.linear.y = 0.0
+        self.testing_model_state.twist.linear.z = 0.0
+        self.testing_model_state.twist.angular.x = 0.0
+        self.testing_model_state.twist.angular.y = 0.0
+        self.testing_model_state.twist.angular.z = 0.0
+        self.testing_model_state.reference_frame = "world"
 
         self.setmode_request.custom_mode = "OFFBOARD"
         self.arming_request.value = True
@@ -314,6 +347,7 @@ class ExpertDataGatherer:
                         rospy.loginfo("Vehicle armed")
                     last_requset_time = rospy.Time.now()
 
+                self.local_pos_pub.publish(self.testing_position)
                 self.local_vel_pub.publish(self.testing_velocity)
 
                 self.rate.sleep()
@@ -377,57 +411,25 @@ class ExpertDataGatherer:
             self.y_ang = self.current_vel.twist.angular.y
             self.z_ang = self.current_vel.twist.angular.z
 
-    def reward_all(self):
-        # 目前没有加上速度相关的值
-        rew_dis = self.reward_dis()
-        rew_yaw = self.reward_yaw()
-        rew_cont = self.reward_continuity()
-        rew_air = self.reward_airborne()
-        return rew_dis + rew_yaw + rew_cont + rew_air
-
-    def reward_dis(self):
-        # 与目标的距离，越近越好
-        dis_sum = self.x_diff**2 + self.y_diff**2 + self.z_diff**2
-        return -np.log(dis_sum).item()
-
-    def reward_yaw(self):
-        # 使无人机朝向人头的位置
-        return -np.log((self.yaw_diff - self.yaw_current) ** 2).item()
-
-    def reward_continuity(self):
-        # 保证控制指令的连续性
-        if len(self.past_action) < 2:
-            return 0
-        else:
-            return -torch.log(
-                torch.sum((self.past_action[-2] - self.past_action[-1]) ** 2)
-            ).item()
-
-    def reward_airborne(self):
-        # 奖励上天的无人机
-        return self.current_pos.pose.position.z
-
-    def reward_lin(self):
-        # 速度应该有个限度，但是不知道怎么设置
-        return self.x_lin + self.y_lin + self.z_lin
-
-    def reward_ang(self):
-        return self.x_ang + self.y_ang + self.z_ang
-
     def track_done(self):
-        if self.iter_counter <= 10000:
+        if self.iter_counter <= 5000:  # for testing
             return False
-        else:
+        elif self.iter_counter > 5000:
             self.iter_counter = 0
+            return True
+        elif np.abs(np.abs(self.roll_current) - np.pi).item() < 10.0 / 180 * np.pi:
+            return True
+        elif np.abs(np.abs(self.pitch_current) - np.pi).item() < 10.0 / 180 * np.pi:
             return True
 
     def clear(self):
-        self.testing_velocity.twist.linear.x = 0.0
-        self.testing_velocity.twist.linear.y = 0.0
-        self.testing_velocity.twist.linear.z = 0.0
-        self.testing_velocity.twist.angular.x = 0.0
-        self.testing_velocity.twist.angular.y = 0.0
-        self.testing_velocity.twist.angular.z = 0.0
+        self.testing_position.pose.position.x = 0.0
+        self.testing_position.pose.position.y = 0.0
+        self.testing_position.pose.position.z = 0.0
+        self.testing_position.pose.orientation.x = 0.0
+        self.testing_position.pose.orientation.y = 0.0
+        self.testing_position.pose.orientation.z = 0.0
+        self.testing_position.pose.orientation.w = 1.0
 
     def quaternion_to_euler(self, x, y, z, w):
         """
@@ -486,13 +488,13 @@ class ExpertDataGatherer:
 
 
 test_model = ExpertDataGatherer()
-
 action_list = [0.0 for i in range(test_model.action_dim)]
-action_list[-1] = 1.0
+state_log = []
+action_log = []
 
-for j in range(2):
-    i = 0
-    while 1:
+for j in range(1):
+    done = False
+    while not done:
         # --------------------------------
         action_list[0] = test_model.x_diff + test_model.current_pos.pose.position.x
         action_list[1] = test_model.y_diff + test_model.current_pos.pose.position.y
@@ -501,17 +503,52 @@ for j in range(2):
         action_list[-2] = math.sin(0.5 * (test_model.yaw_diff))
         action_list[-1] = math.cos(0.5 * (test_model.yaw_diff))
 
-        # --------------以上可用神经网络取代-------------------------
+        # --------------以上用于生成专家数据-------------------------
 
-        # 得到的值可以再次喂给神经网络
-        # state_array, _, _ = test_model.step(action=action_list)
-        # state_itr.append(state_array)
-        state_array = test_model.step(action=action_list)
+        state_array, action_array, done = test_model.step(action=action_list)
+
+        state_log.append(state_array)
+        action_log.append(action_array)
 
         test_model.rate.sleep()
-        i += 1
 
-        if i > 300:
-            state_array = test_model.reset()
-            test_model.init_node()
-            break
+    data = []
+    for arr1, arr2 in zip(state_log, action_log):
+        data.append(np.concatenate([arr1, arr2]))
+
+    # 创建 DataFrame
+    df = pd.DataFrame(data)
+
+    # 自定义列名
+    df.columns = [
+        "x_diff",
+        "y_diff",
+        "z_diff",
+        "yaw_diff",
+        "x_current",
+        "y_current",
+        "z_current",
+        "roll_current",
+        "pitch_current",
+        "yaw_current",
+        "lin_vel_x",
+        "lin_vel_y",
+        "lin_vel_z",
+        "ang_vel_x",
+        "ang_vel_y",
+        "ang_vel_z",
+    ]
+
+    # 写入 CSV
+    t = time.localtime()
+
+    folder = os.path.exists(f"./expert_data")
+    if not folder:
+        os.makedirs(f"./expert_data")
+
+    df.to_csv(
+        f"./expert_data/{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}.csv",
+        index=False,
+    )
+
+    state_array = test_model.reset()

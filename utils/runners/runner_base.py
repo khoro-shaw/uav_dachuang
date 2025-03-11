@@ -25,6 +25,7 @@ class RunnerBase:
         update_num=5000,
         env_class="EnvGymMCC",
         alg_class="PPOBase",
+        load_flag=False,
     ):
         self.env = eval(env_class)()
         self.env_class = env_class
@@ -38,6 +39,7 @@ class RunnerBase:
             actor_param_list=actor_param_list,
             critic_param_list=critic_param_list,
             params_dict=params_dict,
+            load_flag=load_flag,
         )
         self.alg_test = eval(alg_class)(
             env=self.env_test,

@@ -28,6 +28,7 @@ runner = RunnerBase(
     params_dict=params_dict,
     env_class="EnvMavrosGazebo",
     alg_class="PPOBase",
+    load_flag=True,
 )
 
 runner.train()
