@@ -12,7 +12,8 @@ from mavros_msgs.srv import (
     SetMode,
     SetModeRequest,
 )
-from gazebo_msgs.msg import LinkStates, ModelStates
+from gazebo_msgs.msg import LinkStates, ModelStates  # get
+from gazebo_msgs.msg import LinkState, ModelState  # give
 
 from std_srvs.srv import Empty
 
@@ -44,7 +45,7 @@ class MavrosEnv:
         # 三个线速度，三个角速度
         self.action_dim = 6
         self.action_range = torch.tensor(
-            data=[[-1, -1, -1, -10, -10, -10], [20 for i in range(self.action_dim)]],
+            data=[[-1, -1, -1, -10, -10, -10], [20, 20, 20, 10, 10, 10]],
             dtype=torch.float,
         )
 
@@ -99,22 +100,16 @@ class MavrosEnv:
 
         state_array = np.array(
             [
-                # self.current_pos.pose.position.x,
-                # self.current_pos.pose.position.y,
-                # self.current_pos.pose.position.z,
-                # self.roll_current,
-                # self.pitch_current,
-                # self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
                 self.yaw_diff,
-                self.x_lin,
-                self.y_lin,
-                self.z_lin,
-                self.x_ang,
-                self.y_ang,
-                self.z_ang,
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
+                self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
             ]
         )
 
@@ -151,25 +146,27 @@ class MavrosEnv:
 
         state_array = np.array(
             [
-                # self.current_pos.pose.position.x,
-                # self.current_pos.pose.position.y,
-                # self.current_pos.pose.position.z,
-                # self.roll_current,
-                # self.pitch_current,
-                # self.yaw_current,
                 self.x_diff,
                 self.y_diff,
                 self.z_diff,
                 self.yaw_diff,
-                self.x_lin,
-                self.y_lin,
-                self.z_lin,
-                self.x_ang,
-                self.y_ang,
-                self.z_ang,
+                self.current_pos.pose.position.x,
+                self.current_pos.pose.position.y,
+                self.current_pos.pose.position.z,
+                self.roll_current,
+                self.pitch_current,
+                self.yaw_current,
             ]
         )
         rospy.loginfo("Env Re-set")
+
+        for i in range(20):
+            self.rate.sleep()
+
+        # 无人机复位
+        for i in range(20):
+            self.model_state_pub.publish(self.testing_model_state)
+            self.rate.sleep()
 
         for i in range(20):
             self.rate.sleep()
@@ -262,6 +259,13 @@ class MavrosEnv:
             "/mavros/setpoint_velocity/cmd_vel", TwistStamped, queue_size=1
         )
 
+        self.link_state_pub = rospy.Publisher(
+            "/gazebo/set_link_state", LinkState, queue_size=1
+        )
+        self.model_state_pub = rospy.Publisher(
+            "/gazebo/set_model_state", ModelState, queue_size=1
+        )
+
         # Setpoint publishing MUST be faster than 2Hz
         period = 0.1  # seconds
         self.rate = rospy.Rate(1.0 / period)
@@ -289,7 +293,25 @@ class MavrosEnv:
 
         self.testing_position = PoseStamped()
         self.testing_velocity = TwistStamped()
-        # self.position_target = PositionTarget()
+        self.testing_link_state = LinkState()
+        self.testing_model_state = ModelState()
+
+        # 设置ModelStates和LinkStates（反正这两个结构体的值是不变的）
+        self.testing_model_state.model_name = self.uav_model_name
+        self.testing_model_state.pose.position.x = 0.0
+        self.testing_model_state.pose.position.y = 0.0
+        self.testing_model_state.pose.position.z = 0.5  # 缓冲量，防止穿模
+        self.testing_model_state.pose.orientation.x = 0.0
+        self.testing_model_state.pose.orientation.y = 0.0
+        self.testing_model_state.pose.orientation.z = 0.0
+        self.testing_model_state.pose.orientation.w = 1.0
+        self.testing_model_state.twist.linear.x = 0.0
+        self.testing_model_state.twist.linear.y = 0.0
+        self.testing_model_state.twist.linear.z = 0.0
+        self.testing_model_state.twist.angular.x = 0.0
+        self.testing_model_state.twist.angular.y = 0.0
+        self.testing_model_state.twist.angular.z = 0.0
+        self.testing_model_state.reference_frame = "world"
 
         self.setmode_request.custom_mode = "OFFBOARD"
         self.arming_request.value = True
@@ -418,11 +440,21 @@ class MavrosEnv:
         return self.x_ang + self.y_ang + self.z_ang
 
     def track_done(self):
-        if self.iter_counter <= 10000:
-            return False
-        else:
+        if np.abs(np.abs(self.roll_current) - np.pi).item() < 10.0 / 180 * np.pi:
+            return True
+        elif np.abs(np.abs(self.pitch_current) - np.pi).item() < 10.0 / 180 * np.pi:
+            return True
+        elif np.abs(self.current_pos.pose.position.x) > 10.0:
+            return True
+        elif np.abs(self.current_pos.pose.position.y) > 10.0:
+            return True
+        elif np.abs(self.current_pos.pose.position.z) > 10.0:
+            return True
+        elif self.iter_counter > 5000:
             self.iter_counter = 0
             return True
+        elif self.iter_counter <= 5000:  # for testing
+            return False
 
     def clear(self):
         self.testing_velocity.twist.linear.x = 0.0

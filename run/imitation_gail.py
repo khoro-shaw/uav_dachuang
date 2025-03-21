@@ -52,21 +52,21 @@ class GAIL:
             "tau": 5e-3,
             "lmbda": 0.95,
         },
-        load_flag=True,
     ):
-        self.discriminator = Discriminator(obs_dim=10, action_dim=5)
+        self.discriminator = Discriminator(obs_dim=10, action_dim=6)
         self.optim_discrim = torch.optim.Adam(
             params=self.discriminator.parameters(), lr=1e-3
         )
 
+        self.env = EnvMavrosGazebo()
         self.agent = PPOBase(
             env=self.env,
             actor_param_list=actor_param_list,
             critic_param_list=critic_param_list,
             params_dict=params_dict,
-            load_flag=load_flag,
+            load_flag=True,
+            imitation_flag=True,
         )
-        self.env = EnvMavrosGazebo()
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -74,9 +74,9 @@ class GAIL:
         self,
         expert_state_array,
         expert_action_array,
-        agent_state,
-        agent_action,
-        next_state_array,
+        agent_state_array,
+        agent_action_array,
+        next_state_list,
         done_list,
     ):
         expert_state_tensor = torch.tensor(
@@ -85,12 +85,13 @@ class GAIL:
         expert_action_tensor = torch.tensor(
             data=expert_action_array, dtype=torch.float
         ).to(self.device)
-        agent_state_tensor = agent_state.to(
+
+        agent_state_tensor = torch.tensor(data=agent_state_array, dtype=torch.float).to(
             self.device
-        )  # PPO训练时已将env给的array转换成Tensor
-        agent_action_tensor = agent_action.to(
-            self.device
-        )  # PPO训练时已将env给的array转换成Tensor
+        )
+        agent_action_tensor = torch.tensor(
+            data=agent_action_array, dtype=torch.float
+        ).to(self.device)
 
         expert_prob_tensor = self.discriminator(
             expert_state_tensor, expert_action_tensor
@@ -106,14 +107,32 @@ class GAIL:
         loss.backward()
         self.optim_discrim.step()
 
-        reward_list = -torch.log(agent_prob_tensor).detach().cpu().tolist()
+        reward_array = -torch.log(agent_prob_tensor).detach().cpu().numpy()
+        next_state_array = np.array(next_state_list)
+        done_array = np.array(done_list)
 
-        self.agent.tuples_log = zip(
-            agent_state_tensor,
-            agent_action_tensor,
-            reward_list,
+        # rospy.loginfo(agent_state_tensor)
+        # rospy.loginfo(agent_state_tensor.shape)
+        # rospy.loginfo("-" * 15)
+        # rospy.loginfo(agent_action_tensor)
+        # rospy.loginfo(agent_action_tensor.shape)
+        # rospy.loginfo("-" * 20)
+        # rospy.loginfo(reward_tensor)
+        # rospy.loginfo(reward_tensor.shape)
+        # rospy.loginfo("-" * 25)
+        # rospy.loginfo(next_state_tensor)
+        # rospy.loginfo(next_state_tensor.shape)
+        # rospy.loginfo("-" * 30)
+        # rospy.loginfo(done_tensor)
+        # rospy.loginfo(done_tensor.shape)
+        # rospy.loginfo("-" * 35)
+
+        self.agent.tuples_log_imitation = zip(
+            agent_state_array,
+            agent_action_array,
+            reward_array,
             next_state_array,
-            done_list,
+            done_array,
         )
         self.agent.update()
 
@@ -154,3 +173,39 @@ for file in csv_files:
 
 expert_state_array = np.array(expert_state_list).reshape((-1, 10))
 expert_action_array = np.array(expert_action_list).reshape((-1, 6))
+
+
+imitator_gail = GAIL()
+episode_num = 500
+for i in range(episode_num):
+    done = False
+    agent_state = imitator_gail.agent.env.reset()
+    agent_state_list = []
+    agent_action_list = []
+    next_state_list = []
+    done_list = []
+    i = 0
+    while not done:
+        i += 1
+        agent_state_tensor = torch.tensor(data=agent_state, dtype=torch.float)
+        agent_action_tensor, next_state, done, _ = imitator_gail.agent.take_one_step(
+            agent_state_tensor
+        )
+        agent_state_list.append(agent_state)  # ndarray
+        agent_action_list.append(agent_action_tensor.numpy())  # Tensor
+        next_state_list.append(next_state)  # ndarray
+        done_list.append(done)  # bool
+
+        agent_state = next_state
+
+    agent_state_arrays = np.array(agent_state_list)
+    agent_action_arrays = np.array(agent_action_list)
+
+    imitator_gail.learn(
+        expert_state_array,
+        expert_action_array,
+        agent_state_arrays,
+        agent_action_arrays,
+        next_state_list,
+        done_list,
+    )

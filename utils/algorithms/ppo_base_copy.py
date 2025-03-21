@@ -234,28 +234,18 @@ class PPOBase:
             td_delta = td_target - self.actor_critic.critic(state_tensor)
 
             # GAE算法估计优势，Advantage = Q - Value
-            # advantage = 0.0
-            # advantage_log = []
-            # td_delta = td_delta.detach().numpy()
-            # for data in td_delta[::-1]:
-            #     advantage = (data + advantage * self.lmbda * self.gamma).item()
-            #     advantage_log.append(advantage)
-            # advantage_log.reverse()
-            # advantage_tensor = (
-            #     torch.tensor(data=advantage_log, dtype=torch.float)
-            #     .unsqueeze(dim=-1)
-            #     .to(device=self.device)
-            # )
-
-            # GAE算法估计优势，Advantage = Q - Value
-            advantage = torch.zeros_like(td_delta[0])
+            advantage = 0.0
             advantage_log = []
-            for data in reversed(td_delta):
+            td_delta = td_delta.detach().numpy()
+            for data in td_delta[::-1]:
                 advantage = (data + advantage * self.lmbda * self.gamma).item()
                 advantage_log.append(advantage)
-
-            advantage_tensor = torch.tensor(data=advantage_log[::-1], dtype=torch.float)
-            # ---------------------------------------
+            advantage_log.reverse()
+            advantage_tensor = (
+                torch.tensor(data=advantage_log, dtype=torch.float)
+                .unsqueeze(dim=-1)
+                .to(device=self.device)
+            )
 
             mu, std = self.actor_critic.actor(state_tensor)
             old_action_dist = torch.distributions.Normal(
@@ -265,32 +255,31 @@ class PPOBase:
             # old_action_dist中，取值为action_tensor张量中的值的对数概率
             old_log_prob = old_action_dist.log_prob(value=action_tensor)
 
-            for i in range(self.epochs):
-                mu, sigma = self.actor_critic.actor(state_tensor)
-                # self.debug_list_update.append(mu.detach().numpy().reshape(-1, 6))
-                new_action_dist = torch.distributions.Normal(loc=mu, scale=sigma)
-                new_log_prob = new_action_dist.log_prob(action_tensor)
-                ratio = torch.exp(new_log_prob - old_log_prob)
+            # for i in range(self.epochs):
 
-                surrogate_obj_1 = ratio * advantage_tensor
-                surrogate_obj_2 = (
-                    torch.clamp(input=ratio, min=1 - self.eps, max=1 + self.eps)
-                    * advantage_tensor
-                )
+            mu, sigma = self.actor_critic.actor(state_tensor)
+            # self.debug_list_update.append(mu.detach().numpy().reshape(-1, 6))
+            new_action_dist = torch.distributions.Normal(loc=mu, scale=sigma)
+            new_log_prob = new_action_dist.log_prob(action_tensor)
+            ratio = torch.exp(new_log_prob - old_log_prob)
 
-                actor_loss = torch.mean(-torch.min(surrogate_obj_1, surrogate_obj_2))
-                critic_loss = torch.mean(
-                    F.mse_loss(
-                        self.actor_critic.critic(state_tensor), td_target.detach()
-                    )
-                )
+            surrogate_obj_1 = ratio * advantage_tensor
+            surrogate_obj_2 = (
+                torch.clamp(input=ratio, min=1 - self.eps, max=1 + self.eps)
+                * advantage_tensor
+            )
 
-                self.actor_optimizer.zero_grad()
-                self.critic_optimizer.zero_grad()
-                actor_loss.backward()
-                critic_loss.backward()
-                self.actor_optimizer.step()
-                self.critic_optimizer.step()
+            actor_loss = torch.mean(-torch.min(surrogate_obj_1, surrogate_obj_2))
+            critic_loss = torch.mean(
+                F.mse_loss(self.actor_critic.critic(state_tensor), td_target.detach())
+            )
+
+            self.actor_optimizer.zero_grad()
+            self.critic_optimizer.zero_grad()
+            actor_loss.backward()
+            critic_loss.backward()
+            self.actor_optimizer.step()
+            self.critic_optimizer.step()
 
             return actor_loss, critic_loss
         else:
