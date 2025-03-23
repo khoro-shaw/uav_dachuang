@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
-# import rospy
+import rospy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -81,10 +81,10 @@ class RunnerBase:
                     print(
                         f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}",
                     )
-                # else:
-                #     rospy.loginfo(
-                #         f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}"
-                #     )
+                else:
+                    rospy.loginfo(
+                        f"update {i}, actor_loss: {self.actor_loss_log[-1]}, critic_loss: {self.critic_loss_log[-1]}"
+                    )
                 a_loss_log = []
                 c_loss_log = []
         self.alg.save_model()

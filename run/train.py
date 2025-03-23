@@ -5,11 +5,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 from utils.runners import RunnerBase
 
-# actor_param_list = [128, 64, 16]
-# critic_param_list = [128, 32, 8]
+actor_param_list = [128, 64, 16]
+critic_param_list = [128, 32, 8]
 
-actor_param_list = [16, 4]
-critic_param_list = [16, 4]
+
 params_dict = {
     # "tuple_num": 5000,
     "batch_size": 512,
