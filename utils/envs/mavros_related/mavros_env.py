@@ -44,9 +44,10 @@ class MavrosEnv:
 
         # 三个线速度，三个角速度
         self.action_dim = 6
-        self.action_range = torch.tensor(
-            data=[[-1, -1, -1, -10, -10, -10], [20, 20, 20, 10, 10, 10]],
-            dtype=torch.float,
+        # action_range改为np.array
+        self.action_range = np.array(
+            object=[[-1, -1, -1, -10, -10, -10], [20, 20, 20, 10, 10, 10]],
+            dtype=np.float32,
         )
 
         self.uav_model_name = model
@@ -84,7 +85,7 @@ class MavrosEnv:
         self.iter_counter += 1
 
         self.action_input = action
-        self.past_action.append(action)
+        self.past_action.append(torch.tensor(action))
 
         self.testing_velocity.twist.linear.x = self.action_input[0]
         self.testing_velocity.twist.linear.y = self.action_input[1]

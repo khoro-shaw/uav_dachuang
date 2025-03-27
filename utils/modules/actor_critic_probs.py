@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from .actor_critic_base import ActorCriticBase
 
@@ -46,26 +47,33 @@ class ProbsNet(nn.Module):
             self.fc_mu = nn.Linear(
                 in_features=param_list[-1], out_features=dims_dict["action_dim"]
             )
-            self.act_mu = self.get_activation("tanh")
-            self.fc_sigma = nn.Linear(
-                in_features=param_list[-1], out_features=dims_dict["action_dim"]
-            )
-            self.act_sigma = self.get_activation("softplus")
+            self.fc_mu.weight.data.mul_(0.1)
 
+            self.act_mu = self.get_activation("tanh")
+
+            # self.fc_sigma = nn.Linear(
+            #     in_features=param_list[-1], out_features=dims_dict["action_dim"]
+            # )
+            # self.act_sigma = self.get_activation("softplus")
+
+        self.logstd = nn.Parameter(torch.zeros(dims_dict["action_dim"]))
         # self._initialize_weights()
 
     def forward(self, x):
         for i in range(self.num):
             x = self.act_list[i](self.fc_list[i](x))
-        mu = 2.0 * self.act_mu(self.fc_mu(x))
-        std = self.act_sigma(self.fc_sigma(x))
-        return mu, std
+        mu = self.act_mu(self.fc_mu(x))
+        # std = self.act_sigma(self.fc_sigma(x))
+        # return mu, std
+        return mu
 
     # def _initialize_weights(self):
     #     # 对全连接层进行Kaiming初始化
     #     for m in self.modules():
     #         if isinstance(m, nn.Linear):
-    #             nn.init.kaiming_normal_(m.weight, mode="fan_in", nonlinearity="relu")
+    #             nn.init.kaiming_normal_(
+    #                 m.weight, mode="fan_in", nonlinearity="relu"
+    #             )
     #             if m.bias is not None:
     #                 nn.init.constant_(m.bias, 0)
 

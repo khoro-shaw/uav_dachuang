@@ -5,8 +5,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 from utils.runners import RunnerBase
 
-actor_param_list = [128, 64, 16]
-critic_param_list = [128, 32, 8]
+actor_param_list = [32, 32]
+critic_param_list = [32, 32]
 
 
 params_dict = {
@@ -15,9 +15,9 @@ params_dict = {
     "gamma": 0.5,
     "epochs": 10,
     "eps": 0.2,
-    "critic_lr": 1e-2,
+    "critic_lr": 1e-3,
     "critic_eps": 8e-2,
-    "actor_lr": 1e-2,
+    "actor_lr": 4e-4,
     "actor_eps": 8e-2,
     "sigma": 1e-2,
     "tau": 5e-3,
@@ -28,7 +28,8 @@ runner = RunnerBase(
     actor_param_list=actor_param_list,
     critic_param_list=critic_param_list,
     params_dict=params_dict,
-    env_class="EnvGymMCC",
+    update_num=50000,
+    env_class="EnvGymWalker",
     alg_class="PPOBase",
     load_flag=False,
 )

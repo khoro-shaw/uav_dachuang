@@ -41,11 +41,11 @@ class EnvMavrosGazebo(EnvBase):
 
     def reset(self):
         seed = np.random.randint(low=0, high=self.seed_range)
-        state_tensor = self.env.reset(seed=seed)
+        state_array = self.env.reset(seed=seed)
         if not self.privileged:
-            return state_tensor
+            return state_array
         else:
-            return state_tensor, state_tensor
+            return state_array, state_array
 
     def get_dims_dict(self):
         dims_dict = {}

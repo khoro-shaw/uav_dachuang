@@ -4,13 +4,15 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
-import rospy
+# import rospy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
-from envs import EnvGymMCC, EnvGymPen
+from envs import EnvGymMCC, EnvGymPen, EnvGymWalker
 
 # from envs import EnvMavrosGazebo
+
+
 from algorithms import DDPGBase, PPOBase
 
 
@@ -66,7 +68,7 @@ class RunnerBase:
                     self.alg.take_one_track()  # take one track
             else:
                 self.alg.take_one_track()
-            a_loss, c_loss = self.alg.update()  # update
+            a_loss, c_loss = self.alg.update(update_id=i)  # update
 
             a_loss_log.append(a_loss)
             c_loss_log.append(c_loss)
