@@ -5,18 +5,8 @@ import os
 import sys
 import time
 import pandas as pd
-
 import sys
-
-# t = time.localtime()
-# sys.stdout = open(
-#     f"./params/layers_{t.tm_year}_{t.tm_mon}_{t.tm_mday}_{t.tm_hour}_{t.tm_min}.log",
-#     mode="w",
-#     encoding="utf-8",
-# )
-
-
-# import rospy
+import rospy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -280,54 +270,7 @@ class PPOBase:
             # old_action_dist中，取值为action_tensor张量中的值的对数概率
             old_log_prob = old_action_dist.log_prob(value=action_tensor)
 
-            print("fc0")
-            print(self.actor_critic.actor.fc0.bias)
-            print(self.actor_critic.actor.fc0.bias.grad)
-            print(self.actor_critic.actor.fc0.weight)
-            print(self.actor_critic.actor.fc0.weight.grad)
-            print("fc1")
-            print(self.actor_critic.actor.fc1.bias)
-            print(self.actor_critic.actor.fc1.bias.grad)
-            print(self.actor_critic.actor.fc1.weight)
-            print(self.actor_critic.actor.fc1.weight.grad)
-            print("fc_mu")
-            print(self.actor_critic.actor.fc_mu.bias)
-            print(self.actor_critic.actor.fc_mu.bias.grad)
-            print(self.actor_critic.actor.fc_mu.weight)
-            print(self.actor_critic.actor.fc_mu.weight.grad)
-            print("fc_sigma")
-            # print(self.actor_critic.actor.fc_sigma.bias)
-            # print(self.actor_critic.actor.fc_sigma.bias.grad)
-            # print(self.actor_critic.actor.fc_sigma.weight)
-            # print(self.actor_critic.actor.fc_sigma.weight.grad)
-            print(self.actor_critic.actor.logstd)
-            print(f"-----------{update_id}-------------")
-
             for i in range(self.epochs):
-                print("fc0")
-                print(self.actor_critic.actor.fc0.bias)
-                print(self.actor_critic.actor.fc0.bias.grad)
-                print(self.actor_critic.actor.fc0.weight)
-                print(self.actor_critic.actor.fc0.weight.grad)
-                print("fc1")
-                print(self.actor_critic.actor.fc1.bias)
-                print(self.actor_critic.actor.fc1.bias.grad)
-                print(self.actor_critic.actor.fc1.weight)
-                print(self.actor_critic.actor.fc1.weight.grad)
-                print("fc_mu")
-                print(self.actor_critic.actor.fc_mu.bias)
-                print(self.actor_critic.actor.fc_mu.bias.grad)
-                print(self.actor_critic.actor.fc_mu.weight)
-                print(self.actor_critic.actor.fc_mu.weight.grad)
-                print("fc_sigma")
-                # print(self.actor_critic.actor.fc_sigma.bias)
-                # print(self.actor_critic.actor.fc_sigma.bias.grad)
-                # print(self.actor_critic.actor.fc_sigma.weight)
-                # print(self.actor_critic.actor.fc_sigma.weight.grad)
-                print(self.actor_critic.actor.logstd)
-                print(self.actor_critic.actor.logstd.grad)
-                print(f"-----------{update_id}, {i}-------------")
-
                 # mu, std = self.actor_critic.actor(state_tensor)
                 mu = self.actor_critic.actor(state_tensor)
                 sigma = torch.exp(self.actor_critic.actor.logstd)
@@ -421,11 +364,15 @@ class PPOBase:
     def load_model(self):
         if os.path.exists("./train_logs/ppo/latest/actor.pth"):
             state_dict_actor = torch.load(
-                "./train_logs/ppo/latest/actor.pth", map_location=torch.device("cpu")
+                "./train_logs/ppo/latest/actor.pth",
+                map_location=torch.device("cpu"),
+                weights_only=False,
             )
             self.actor_critic.actor.load_state_dict(state_dict_actor)
         if os.path.exists("./train_logs/ppo/latest/critic.pth"):
             state_dict_critic = torch.load(
-                "./train_logs/ppo/latest/critic.pth", map_location=torch.device("cpu")
+                "./train_logs/ppo/latest/critic.pth",
+                map_location=torch.device("cpu"),
+                weights_only=False,
             )
             self.actor_critic.critic.load_state_dict(state_dict_critic)

@@ -28,10 +28,10 @@ runner = RunnerBase(
     actor_param_list=actor_param_list,
     critic_param_list=critic_param_list,
     params_dict=params_dict,
-    update_num=50000,
+    update_num=10000,
     env_class="EnvGymWalker",
     alg_class="PPOBase",
-    load_flag=False,
+    load_flag=True,
 )
 
 runner.train()

@@ -3,8 +3,7 @@ import matplotlib.pyplot as plt
 
 import os
 import sys
-
-# import rospy
+import rospy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -57,11 +56,9 @@ class RunnerBase:
         self.actor_loss_log = []
         self.critic_loss_log = []
 
-    def train(self, load=False):
+    def train(self):
         a_loss_log = []
         c_loss_log = []
-        if load:
-            self.alg.load_model()
         for i in range(self.update_num):
             if self.env_class == "DDPGBase":  # 离线策略算法
                 for j in range(self.track_num):
